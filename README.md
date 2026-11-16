@@ -1,8 +1,36 @@
 # Guise
 
-Guise is a proxy client.
+**Blend in, get through.** Guise 是一个安卓代理客户端，目标是在审查严格的网络里更稳地连出去：既能连你自己的代理服务器，也能在没有服务器的时候，用 ByeDPI 对付基于 SNI 的封锁。
 
-> **Guise is a fork of [Exclave](https://github.com/ExclaveNetwork/Exclave)** (itself derived from SagerNet), licensed under the GNU General Public License v3.0. All credit for the original work goes to the Exclave and SagerNet authors; see License below. Links in this README that point to ExclaveNetwork refer to the upstream project.
+*Guise is an anti-censorship Android proxy client. It is a fork of [Exclave](https://github.com/ExclaveNetwork/Exclave) (SagerNet lineage) that adds built-in ByeDPI desync, a DPI strategy prober and Wi-Fi + mobile-data connection splitting.*
+
+> ⚠️ 目前只发布 debug 预览版，签名和包名（`io.github.guise`）都跟 Exclave 不同，可以和 Exclave 同时安装。这是独立的分支，问题请提到本仓库，不要去打扰上游。
+
+## Guise 加了什么
+
+### ByeDPI 直连模式
+- 内置 [ByeDPI](https://github.com/hufrea/byedpi)，以独立进程运行，不需要服务器就能对 TLS 握手做拆分、乱序、伪造包等处理，绕过只看 SNI 的封锁。
+- 两种用法：
+  - 添加一个“仅 ByeDPI”配置，所有流量都经 ByeDPI 直接出去。
+  - 平时照常用代理节点，同时把**指定域名**或**全部直连流量**交给 ByeDPI。
+- 走 ByeDPI 的域名改用加密 DNS（默认 `https://1.1.1.1/dns-query`、`https://8.8.8.8/dns-query`）解析，避开被污染的系统 DNS。DNS 查询本身也可以选择经过 ByeDPI 发出。
+- 默认参数 `-d1 -r1+s`。没有使用 OOB，因为有些中间设备会把 OOB 字节塞进数据流，导致 TLS 握手失败。
+
+### 连通性测试（策略探测）
+- 对你勾选的网站批量尝试几十组 ByeDPI 参数，并以直连作为基线，按成功率和延迟排序。好用的参数可以一键应用。
+- 内置常见目标：X/Twitter、Twitch、Pixiv、Wikipedia、Reddit、Steam 社区、Internet Archive 等，并以 GitHub 作对照。
+- 测试时用 DoH 解析域名，结果不会被 DNS 污染干扰。
+
+### 双网络分流（WiFi + 移动数据）
+- 开启后，连着 WiFi 也会让移动数据保持在线，新的代理连接会分配到两个网络上。
+- 只在使用远程代理（SS、VMess、VLESS、Trojan、Hysteria2 等）时分流，所以出口 IP 始终是你的服务器。使用 ByeDPI 配置时固定只走一个网络。
+- 两种分配方式：1:1 轮流；或者自动定时测两边的延迟和抖动，按结果调整比例，某条线路断了就全部切到另一条。
+- 分流以连接为单位，单个连接不会叠加带宽。包级聚合（类似 Speedify）在计划中。
+
+### 继承自 Exclave 的能力
+uTLS 指纹、REALITY、ECH、自定义验证 SNI、TLS 分片、XHTTP、Hysteria2 端口跳跃与混淆、mux padding 等抗检测手段，以及分组、订阅、路由、代理链。
+
+支持的协议：
 
 <details>
 
@@ -37,53 +65,31 @@ Some supported protocols:
 
 </details>
 
-## Download
+## 下载
 
-- Exclave
+到 [Releases](https://github.com/shixyuu/Guise/releases) 下载最新版。大多数手机选 `arm64-v8a`。这些是 debug 签名的预览版，更新时直接覆盖安装即可。
 
-  [Download from GitHub releases](https://github.com/ExclaveNetwork/Exclave/releases)
+NaïveProxy 插件请从 [klzgrad/naiveproxy](https://github.com/klzgrad/naiveproxy/releases) 获取。
 
-  [Download from F-Droid](https://f-droid.org/packages/com.github.dyhkwong.sagernet)
+## 从源码构建
 
-  SHA-256 hash of the signing certificate: `e9fe39e1ce254c50c2f9470a757b378c0b7cc536119867f7691405b592e6994b`
+- 准备 JDK 21 或 25、Go 1.27 与 gomobile、Android SDK Platform 37.2、Build-Tools 37.0.0、NDK r30。
+- 拉取子模块：`git submodule update --init library/byedpi`
+- 编译 ByeDPI：`./bin/lib/byedpi.sh`，会输出到 `app/src/main/jniLibs/<abi>/libbyedpi.so`。
+- 编译内核：需要 [libexclavecore](https://github.com/exclavenetwork/libexclavecore)，并先打上 `library/core/patches/libexclavecore-guise-dualnet.patch`（双网络分流需要），然后执行 `cd library/core && ./build.sh`。
+- 下载资源：`./gradlew :app:downloadAssets`
+- 构建：`./gradlew :app:assembleOssDebug`（debug）或 `./gradlew :app:assembleOssRelease`（release）。
+- 签名：仓库里不包含任何密钥。请用 `keytool` 生成你自己的 keystore，然后通过 `local.properties`、环境变量，或者 `GUISE_SIGNING_PROPERTIES` 指向的文件，提供 `KEYSTORE_FILE`、`KEYSTORE_PASS`、`ALIAS_NAME`、`ALIAS_PASS`。不提供时，release 包不签名。
 
-  The default flavor (versions without `-legacy` suffix) supports Android 7.0+. The legacy flavor (versions with `-legacy` suffix, with some Gradle dependencies pinned to old versions) supports Android 5.0+. The legacy flavor is for old devices only and using it on new devices may lead to [unexpected behaviors](https://issuetracker.google.com/issues/519796838). The support for the legacy flavor is on a best-efforts basis and may be ended at any time.
+更详细的设计说明和改动记录见 [GUISE.md](GUISE.md)。
 
-- NaïveProxy Plugin
+## 致谢
 
-  [Download from GitHub releases](https://github.com/klzgrad/naiveproxy/releases)
-
-  It is distributed and signed by the upstream author.
-
-Starting in 2027, Google will [block apps from "sideloading"](https://developer.android.com/developer-verification) on [certified Android devices](https://www.android.com/certified/partners/). If you are a user who values digital freedom, we need your voice to [express opposition](https://keepandroidopen.org/). Your support will not only help save this app, but also help defend software freedom and open distribution.
-
-## Explanation of terms
-
-[Exclave wiki](https://github.com/ExclaveNetwork/Exclave/wiki). It contains some subjective comments. Viewer discretion is advised.
-
-## Translation
-
-Is Exclave not in your language, or the translation is incorrect or incomplete? Get involved in the translations on [Hosted Weblate](https://hosted.weblate.org/projects/exclave/).
-
-## Issue tracker
-
-Please report bugs and submit feature requests [here](https://github.com/ExclaveNetwork/Exclave/issues).
-
-- Before creating a new issue, please search for existing ones. Do not create duplicate issues.
-- Old versions are not supported. Please ensure that you are using the latest version.
-- For crashes, log file using "debug" log level is required. The log file may contain the secret keys used to connect to your servers. Please remove potential sensitive information before posting them publicly.
-- For memory leak and high system resource usage, pprof profile is required. Long press "About" - "Version" to enable pprof HTTP server settings and kill and restart the app to take effect.
-- Encrypt with [this GPG public key](https://github.com/dyhkwong.gpg) if the issue contains sensitive information or you are reporting a vulnerability.
-- Because of the legacy codebase, feature requests are likely not accepted.
-
-## Discussion
-
-- Public [discussions](https://github.com/ExclaveNetwork/Exclave/discussions) are always preferred because they can be viewed by everyone.
-- Private [chat group](https://t.me/s/exclavian).
-
-## Code contribution
-
-- Create a [pull request](https://github.com/ExclaveNetwork/Exclave/pulls) to contribute code. New features needs prior communications in the issue tracker, while bug fixes does not.
+- [Exclave](https://github.com/ExclaveNetwork/Exclave) 与 [SagerNet](https://github.com/SagerNet/SagerNet)：Guise 的基础，绝大部分功劳属于原作者。
+- [hufrea/byedpi](https://github.com/hufrea/byedpi)（MIT）：DPI 绕过引擎。
+- [romanvht/ByeByeDPI](https://github.com/romanvht/ByeByeDPI)（GPL-3.0）：参数处理、策略列表和测试逻辑的参考与部分代码。
+- [URenko/Accesser](https://github.com/URenko/Accesser)、[SpaceTimee/Cealing-Host](https://github.com/SpaceTimee/Cealing-Host)：测试目标列表的参考。
+- [Shadowsocks Android](https://github.com/shadowsocks/shadowsocks-android)、[husi](https://github.com/xchacha20-poly1305/husi) 以及其他 SagerNet 分支。
 
 ## License
 
@@ -107,45 +113,6 @@ Please report bugs and submit feature requests [here](https://github.com/Exclave
 
 Exclave is licensed under the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. However, Exclave optionally incorporates code covered by the GNU General Public License as published by the Free Software Foundation, version 3. If `github.com/exclavenetwork/libexclavecore` is compiled with `with_clash` tag, the GNU General Public License as published by the Free Software Foundation, version 3, applies to all of Exclave.
 
-## Build from source
+## Notice
 
-- Install and configure JDK 21 or 25, Go 1.27 and Go Mobile.
-- Install and configure Android SDK Platform 37.2, Android SDK Build-Tools 37.0.0, Android SDK Platform-Tools and Android NDK r30 through Android Studio or Android SDK Command-line Tools.
-- Signing (Guise): no keystore is committed. Generate your own with Java `keytool`, then provide `KEYSTORE_FILE`, `KEYSTORE_PASS`, `ALIAS_NAME`, `ALIAS_PASS` via `local.properties`, environment variables, or an external properties file referenced by `GUISE_SIGNING_PROPERTIES` (path). Without them, release builds are unsigned.
-- Create a new `local.properties` file if it does not exist. Append the following lines to `local.properties`.
-```
-    KEYSTORE_PASS=your_keystore_pass
-    ALIAS_NAME=your_alias_name
-    ALIAS_PASS=your_alias_pass
-```
-
-- Linux (x64) or macOS (x64/arm64):
-
-  - Build libexclavecore:
-  ```
-  pushd ./library/core
-  ./build.sh
-  popd
-  ```
-  - Download assets: `./gradlew :app:downloadAssets`, or update assets to the latest version: `./gradlew :app:updateAssets`
-  - Build Guise: `./gradlew :app:assembleOssRelease` (default flavor) or `./gradlew :app:assembleLegacyRelease` (legacy flavor)
-
-- Windows (x64):
-
-  - Build libexclavecore:
-  ```
-  pushd .\library\core
-  .\build.bat
-  popd
-  ```
-  - Download assets: `.\gradlew.bat :app:downloadAssets`, or update assets to the latest version: `.\gradlew.bat :app:updateAssets`
-  - Build Guise: `.\gradlew.bat :app:assembleOssRelease` (default flavor) or `.\gradlew.bat :app:assembleLegacyRelease` (legacy flavor)
-
-- APK files are located in `.\app\build\outputs\apk\oss\release` (default flavor) or `.\app\build\outputs\apk\legacy\release` (legacy flavor).
-
-## Acknowledgment
-
-- [Shadowsocks](https://github.com/shadowsocks/shadowsocks-android)
-- [SagerNet](https://github.com/SagerNet/SagerNet)
-- [husi](https://github.com/xchacha20-poly1305/husi)
-- Other forks of SagerNet
+Guise 与 Exclave 一样，以 GPL-3.0-or-later 授权。如果 `libexclavecore` 编译时带有 `with_clash` tag，整个程序适用 GPL-3.0。
