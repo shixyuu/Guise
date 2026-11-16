@@ -293,7 +293,7 @@
             app:title="@string/byedpi_domains"
             app:useSimpleSummaryProvider="true" />
         <EditTextPreference
-            app:defaultValue="-o1 -a1 -r-5+se"
+            app:defaultValue="-d1 -r1+s"
             app:dialogMessage="@string/byedpi_args_message"
             app:icon="@drawable/ic_baseline_texture_24"
             app:key="byedpiArgs"

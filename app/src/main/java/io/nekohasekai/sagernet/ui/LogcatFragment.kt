@@ -89,6 +89,7 @@ class LogcatFragment : ToolbarFragment(R.layout.layout_logcat),
                         "exclave-core:D",
                         "libexclavecore:D",
                         "libnaive:D",
+                        "libbyedpi:V",
                         "Guise:D",
                         "*:S",
                     ).joinToString(",")

@@ -9,9 +9,15 @@ class ByeDPITest {
     fun defaultArgsWhenBlank() {
         val cmd = ByeDPI.buildCommand("/lib/libbyedpi.so", 12345, "  ", null)
         assertEquals(
-            listOf("/lib/libbyedpi.so", "--ip", "127.0.0.1", "--port", "12345", "-o1", "-a1", "-r-5+se"),
+            listOf("/lib/libbyedpi.so", "--ip", "127.0.0.1", "--port", "12345", "-d1", "-r1+s"),
             cmd,
         )
+    }
+
+    @Test
+    fun legacyOobDefaultIsReplaced() {
+        assertEquals(ByeDPI.DEFAULT_ARGS, ByeDPI.effectiveArgs(" -o1 -a1 -r-5+se "))
+        assertEquals("-o2 -a1", ByeDPI.effectiveArgs("-o2 -a1"))
     }
 
     @Test

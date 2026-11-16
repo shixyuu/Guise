@@ -40,7 +40,12 @@ import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.plugin.PluginManager
 import kotlinx.coroutines.*
 import libexclavecore.V2RayInstance
+import android.util.Log
+import io.nekohasekai.sagernet.LogLevel
 import java.io.File
+import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.Socket
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -77,13 +82,37 @@ abstract class V2RayInstance(
         if (port <= 0) return
         val executable = File(SagerNet.application.applicationInfo.nativeLibraryDir, ByeDPI.EXECUTABLE)
         if (!executable.canExecute()) {
+            Log.e("Guise", "ByeDPI executable missing or not executable: ${executable.absolutePath}")
             error("ByeDPI executable not found: ${executable.absolutePath}")
         }
         val commands = ByeDPI.buildCommand(
             executable.absolutePath, port, DataStore.byedpiArgs, byedpiProtectPath()
-        )
-        Logs.d("ByeDPI: " + commands.joinToString(" "))
+        ).toMutableList()
+        if (DataStore.logLevel >= LogLevel.DEBUG) {
+            // per-connection desync log, shown in the in-app log under tag "libbyedpi"
+            commands.add(1, "-x1")
+        }
+        Log.i("Guise", "ByeDPI: " + commands.joinToString(" "))
         processes.start(commands)
+        // Don't let the core dial 127.0.0.1:port before byedpi is listening.
+        val ready = runBlocking(Dispatchers.IO) {
+            withTimeoutOrNull(1500L) {
+                while (true) {
+                    try {
+                        Socket().use { it.connect(InetSocketAddress(LOCALHOST, port), 100) }
+                        break
+                    } catch (_: IOException) {
+                        delay(30L)
+                    }
+                }
+                true
+            } ?: false
+        }
+        if (ready) {
+            Log.i("Guise", "ByeDPI listening on 127.0.0.1:$port")
+        } else {
+            Log.w("Guise", "ByeDPI did not open 127.0.0.1:$port within 1.5s (see libbyedpi log)")
+        }
     }
 
     protected open fun buildConfig() {

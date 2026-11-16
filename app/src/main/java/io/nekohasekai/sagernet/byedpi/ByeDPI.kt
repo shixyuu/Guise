@@ -48,11 +48,27 @@ object ByeDPI {
     const val PROFILE_MARKER_ADDRESS = "byedpi.guise.invalid"
 
     /**
-     * Default desync arguments: romanvht/ByeByeDPI's default command line
-     * (utility/PreferencesUtils.kt, DEFAULT_CMD_ARGS): split as OOB at 1st byte, 1 UDP fake,
-     * TLS record split 5 bytes before the end of SNI.
+     * Default desync arguments: `--disorder 1 --tlsrec 1+s`, the first example in byedpi's
+     * README (minus the empty --auto group): send the first byte out of order (TTL trick) and
+     * split the TLS ClientHello into two records right after the SNI start.
+     *
+     * Guise 0.17.68-guise.1 used ByeByeDPI's default `-o1 -a1 -r-5+se`. `-o` sends a TCP urgent
+     * (OOB) byte that the receiving kernel is supposed to drop; when any middlebox/NAT/proxy on
+     * the path clears the URG flag the byte stays in the stream, the TLS record header becomes
+     * `16 61 03 ..` and servers abort with `protocol_version` / `decode_error` alerts
+     * ("remote error: tls: protocol version not supported"). OOB-free strategies don't have that
+     * failure mode.
      */
-    const val DEFAULT_ARGS = "-o1 -a1 -r-5+se"
+    const val DEFAULT_ARGS = "-d1 -r1+s"
+
+    /** Default of 0.17.68-guise.1; transparently replaced by [DEFAULT_ARGS]. */
+    const val LEGACY_DEFAULT_ARGS = "-o1 -a1 -r-5+se"
+
+    /** User args to use: blank or the untouched legacy default map to [DEFAULT_ARGS]. */
+    fun effectiveArgs(userArgs: String): String {
+        val trimmed = userArgs.trim()
+        return if (trimmed.isEmpty() || trimmed == LEGACY_DEFAULT_ARGS) DEFAULT_ARGS else trimmed
+    }
 
     object Mode {
         /** Route all traffic that would go "direct"/bypass through ByeDPI. */
@@ -110,7 +126,7 @@ object ByeDPI {
         userArgs: String,
         protectPath: String?,
     ): List<String> {
-        val args = sanitizeArgs(shellSplit(userArgs.ifBlank { DEFAULT_ARGS }))
+        val args = sanitizeArgs(shellSplit(effectiveArgs(userArgs)))
         return buildList {
             add(executable)
             add("--ip"); add("127.0.0.1")

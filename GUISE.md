@@ -85,11 +85,24 @@ with the new arguments. If byedpi rejects the arguments it exits and the service
 - *Domains* (`byedpiDomains`): one per line; bare `example.com` becomes `domain:example.com`; V2Ray syntax
   (`full:`, `regexp:`, `geosite:`…) passes through.
 - *Arguments* (`byedpiArgs`): raw byedpi CLI. `--ip/--port/--protect-path/--daemon/--pidfile/--help/--version` are
-  stripped (Guise owns them). Empty = default `-o1 -a1 -r-5+se` (ByeByeDPI's default command: OOB split at byte 1,
-  one UDP fake, TLS record split 5 bytes before the end of SNI).
+  stripped (Guise owns them). Empty = default `-d1 -r1+s` (byedpi README's first example: disorder at byte 1 + TLS
+  record split after the SNI start). guise.1 shipped ByeByeDPI's `-o1 -a1 -r-5+se`; that value is migrated
+  automatically. Why it was replaced: `-o` sends a TCP urgent (OOB) byte that only disappears if the URG flag survives
+  end to end. Middleboxes/NATs/transparent proxies that clear URG leave the byte in the stream (TLS header becomes
+  `16 61 03 ..`), servers answer `protocol_version`/`decode_error` alerts ("remote error: tls: protocol version not
+  supported"), and DNS-over-TCP through the profile breaks too, so nothing loads. Reproduced on a NATed Linux host:
+  `-o1` failed ~50% of TLS handshakes, `-d1 -r1+s` and `-s1 -r1+s` 0 failures; replaying a ClientHello with the
+  OOB byte inline gets a fatal alert from Google, Cloudflare, GitHub and Microsoft. Strategies with `-o`/`-q` remain
+  usable when the user's path preserves URG.
+- *Diagnostics*: the in-app log shows `Guise: ByeDPI: <full command>`, `ByeDPI listening on 127.0.0.1:<port>`
+  (Guise waits up to 1.5 s for the port before starting the core) and byedpi's own stderr under tag `libbyedpi`.
+  With log level Debug, byedpi runs with `-x1` (per-connection desync log).
 - *Add ByeDPI-only profile*: creates a SOCKS profile with the placeholder address `byedpi.guise.invalid`. When it
   (or a chain/rule using it) is active, ConfigBuilder points it to the local byedpi port, so Guise works with no
   proxy server at all ("select the ByeDPI profile and connect"). This also works in URL tests.
+
+- ByeDPI profiles (placeholder address) are never flagged "insecure": the SOCKS hop is loopback, like
+  `127.0.0.1`/`localhost` profiles already were.
 
 **Known limitations.**
 - Not runtime-tested on a device yet. ConfigBuilder output was checked by review only (it needs the Android DB);

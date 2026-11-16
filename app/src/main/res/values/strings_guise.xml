@@ -10,7 +10,7 @@
     <string name="byedpi_domains">ByeDPI domains</string>
     <string name="byedpi_domains_message">One per line. "example.com" matches the domain and its subdomains; V2Ray syntax like "full:", "regexp:", "geosite:" is also accepted.</string>
     <string name="byedpi_args">ByeDPI arguments</string>
-    <string name="byedpi_args_message">Raw byedpi (ciadpi) command line options. --ip, --port and --protect-path are managed by Guise. Leave empty to restore the default: -o1 -a1 -r-5+se</string>
+    <string name="byedpi_args_message">Raw byedpi (ciadpi) command line options. --ip, --port and --protect-path are managed by Guise. Leave empty to restore the default: -d1 -r1+s</string>
     <string name="byedpi_create_profile">Add ByeDPI-only profile</string>
     <string name="byedpi_create_profile_sum">Creates a profile that sends all proxied traffic through ByeDPI, so Guise can run without a proxy server</string>
     <string name="byedpi_profile_name">ByeDPI (no server)</string>

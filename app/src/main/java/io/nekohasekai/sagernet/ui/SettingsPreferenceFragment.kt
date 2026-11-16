@@ -88,6 +88,10 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         preferenceManager.preferenceDataStore = DataStore.configurationStore
         DataStore.initGlobal()
+        // Guise: migrate the old OOB-based ByeDPI default (see ByeDPI.DEFAULT_ARGS)
+        if (DataStore.byedpiArgs.trim() == ByeDPI.LEGACY_DEFAULT_ARGS) {
+            DataStore.byedpiArgs = ByeDPI.DEFAULT_ARGS
+        }
         addPreferencesFromResource(R.xml.global_preferences)
 
         // common
