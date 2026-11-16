@@ -208,6 +208,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var dualNetStrategy by configurationStore.stringToInt(Key.DUAL_NET_STRATEGY) { DualNet.Strategy.FIXED }
     var dualNetSingleNetwork by configurationStore.stringToInt(Key.DUAL_NET_SINGLE) { DualNet.Single.WIFI }
     var dualNetSampleKb by configurationStore.stringToInt(Key.DUAL_NET_SAMPLE_KB) { DualNet.DEFAULT_SAMPLE_KB }
+    var dualNetUdpProbeInterval by configurationStore.stringToInt(Key.DUAL_NET_UDP_PROBE_INTERVAL) { DualNet.DEFAULT_UDP_PROBE_INTERVAL }
     /** comma separated target ids (presets and "custom:<url>") */
     var byedpiProbeTargets by configurationStore.stringNotBlack(Key.BYEDPI_PROBE_TARGETS) { ByeDPIProbeTargets.DEFAULT_SELECTION }
     var byedpiProbeCustom by configurationStore.string(Key.BYEDPI_PROBE_CUSTOM)
@@ -388,6 +389,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var serverHysteria2GeckoMinPacketSize by profileCacheStore.stringToInt(Key.SERVER_HYSTERIA2_GECKO_MIN_PACKET_SIZE)
     var serverHysteria2GeckoMaxPacketSize by profileCacheStore.stringToInt(Key.SERVER_HYSTERIA2_GECKO_MAX_PACKET_SIZE)
     var serverHysteria2ChromeParrot by profileCacheStore.boolean(Key.SERVER_HYSTERIA2_CHROME_PARROT)
+    var serverHysteria2DisableLossCompensation by profileCacheStore.boolean(Key.SERVER_HYSTERIA2_DISABLE_LOSS_COMPENSATION)
 
     var serverSnellVersion by profileCacheStore.stringToInt(Key.SERVER_SNELL_VERSION)
     var serverSnellReuse by profileCacheStore.boolean(Key.SERVER_SNELL_REUSE)

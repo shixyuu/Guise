@@ -1405,6 +1405,10 @@ fun buildV2RayConfig(
                                             }
                                             if (bean.uploadMbps > 0) {
                                                 up_mbps = bean.uploadMbps
+                                                // Guise: only meaningful for Brutal (upload bandwidth set)
+                                                if (bean.disableLossCompensation) {
+                                                    disableLossCompensation = true
+                                                }
                                             }
                                             type = bean.congestionControl
                                             if (bean.congestionControl == "bbr") {

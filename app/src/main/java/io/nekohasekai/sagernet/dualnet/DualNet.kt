@@ -48,6 +48,11 @@ object DualNet {
     const val MIN_SAMPLE_KB = 16
     const val MAX_SAMPLE_KB = 65536
 
+    /** Auto mode: minimum seconds between active UDP probe rounds (0 = off). */
+    const val DEFAULT_UDP_PROBE_INTERVAL = 10
+    const val MIN_UDP_PROBE_INTERVAL = 3
+    const val MAX_UDP_PROBE_INTERVAL = 600
+
     const val WINDOW = 10
 
     /** A network is considered dead after this many failures in a row (connect errors, stalls). */

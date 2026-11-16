@@ -80,4 +80,8 @@
     <string name="dual_net_status_idle">Not running (start Guise with this option on)</string>
     <string name="dual_net_status_split">Splitting proxy connections</string>
     <string name="dual_net_status_single">Single network (ByeDPI / direct profile)</string>
+    <string name="hysteria2_disable_loss_compensation">Disable loss compensation (Brutal)</string>
+    <string name="hysteria2_disable_loss_compensation_sum">Only applies when an upload speed is set (Brutal congestion control). Normally Brutal raises its send rate by 1/(1 − loss) (up to 1.25×) to make up for lost packets; with this on it sends exactly the configured upload rate. Gentler on lossy or policed links.</string>
+    <string name="dual_net_udp_probe">UDP probe minimum interval (seconds, auto mode)</string>
+    <string name="dual_net_udp_probe_sum">UDP/QUIC profiles (Hysteria2, TUIC, Juicity, mKCP…) can\'t be measured passively, so while traffic flows Guise sends one small probe to the server over each network (QUIC version negotiation, falling back to a TCP connect). At most one round per this many seconds, and only after the sample-trigger amount of traffic. 0 = off. Default 10.</string>
 </resources>

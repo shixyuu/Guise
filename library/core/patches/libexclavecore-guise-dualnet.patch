@@ -1,7 +1,7 @@
 From d1187e0d0778a0c999501e3c198b1b938046be79 Mon Sep 17 00:00:00 2001
 From: Guise <guise@localhost>
 Date: Mon, 16 Nov 2026 17:59:06 -0500
-Subject: [PATCH 1/2] Guise: socket binder hook for dual-network split
+Subject: [PATCH 1/3] Guise: socket binder hook for dual-network split
 
 ---
  dialer.go   |   3 ++
@@ -167,7 +167,7 @@ index a5b862a..db580c4 100644
 From feab3d96353ca310cee4540cebce4639065f0d03 Mon Sep 17 00:00:00 2001
 From: Guise <guise@localhost>
 Date: Mon, 16 Nov 2026 18:13:12 -0500
-Subject: [PATCH 2/2] Guise: passive dual-network measurement from live split
+Subject: [PATCH 2/3] Guise: passive dual-network measurement from live split
  connections (TCP_INFO)
 
 ---
@@ -783,6 +783,844 @@ index 0000000..499a43a
 +		reportSample(network, int64(b.info.Rtt), int64(b.info.Rttvar), loss, false)
 +	}
 +	return true
++}
+-- 
+2.47.3
+
+
+From 5956fa3c7d1ef6daa233dca44b2e6a3f0a587a3b Mon Sep 17 00:00:00 2001
+From: Guise <guise@localhost>
+Date: Mon, 16 Nov 2026 18:29:00 -0500
+Subject: [PATCH 3/3] Guise: traffic-driven active probing for UDP/QUIC split
+ sessions
+
+---
+ dialer.go                   |   3 +
+ dualnet/probe_linux.go      | 139 ++++++++++++++++++++
+ dualnet/probe_linux_test.go |  89 +++++++++++++
+ dualnet/udpprobe.go         | 171 +++++++++++++++++++++++++
+ dualnet/udpprobe_test.go    |  84 +++++++++++++
+ multinet.go                 |   7 ++
+ sampler.go                  |   4 +-
+ udpsampler.go               | 245 ++++++++++++++++++++++++++++++++++++
+ 8 files changed, 741 insertions(+), 1 deletion(-)
+ create mode 100644 dualnet/probe_linux.go
+ create mode 100644 dualnet/probe_linux_test.go
+ create mode 100644 dualnet/udpprobe.go
+ create mode 100644 dualnet/udpprobe_test.go
+ create mode 100644 udpsampler.go
+
+diff --git a/dialer.go b/dialer.go
+index cecf7dd..861ca57 100644
+--- a/dialer.go
++++ b/dialer.go
+@@ -157,6 +157,9 @@ func (dialer protectedDialer) dial(ctx context.Context, src v2rayNet.Address, de
+ 			unix.Close(fd)
+ 			return nil, err
+ 		}
++		if split && label != "" {
++			packetConn = trackSplitUDP(packetConn, destAddr, label, dialer.protector)
++		}
+ 		return &internet.PacketConnWrapper{
+ 			Conn: packetConn,
+ 			Dest: destAddr,
+diff --git a/dualnet/probe_linux.go b/dualnet/probe_linux.go
+new file mode 100644
+index 0000000..75b0a7a
+--- /dev/null
++++ b/dualnet/probe_linux.go
+@@ -0,0 +1,139 @@
++//go:build linux
++
++/*
++Copyright (C) 2026 Guise contributors
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with this program.  If not, see <https://www.gnu.org/licenses/>.
++*/
++
++package dualnet
++
++import (
++	"crypto/rand"
++	"errors"
++	"net"
++	"time"
++
++	"golang.org/x/sys/unix"
++)
++
++var ErrPrepare = errors.New("socket preparation (protect/bind) failed")
++
++func sockaddr(ip net.IP, port int) (unix.Sockaddr, int) {
++	if ip4 := ip.To4(); ip4 != nil {
++		sa := &unix.SockaddrInet4{Port: port}
++		copy(sa.Addr[:], ip4)
++		return sa, unix.AF_INET
++	}
++	sa := &unix.SockaddrInet6{Port: port}
++	copy(sa.Addr[:], ip.To16())
++	return sa, unix.AF_INET6
++}
++
++// ProbeQUIC sends one version-negotiation probe to ip:port and waits for the VN reply.
++// prepare is called on the new socket before it is used (VpnService.protect + bind to the
++// network to measure). Returns the round-trip time.
++func ProbeQUIC(ip net.IP, port int, timeout time.Duration, prepare func(fd int) bool) (time.Duration, error) {
++	sa, family := sockaddr(ip, port)
++	fd, err := unix.Socket(family, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, unix.IPPROTO_UDP)
++	if err != nil {
++		return 0, err
++	}
++	defer unix.Close(fd)
++	if prepare != nil && !prepare(fd) {
++		return 0, ErrPrepare
++	}
++	if err := unix.Connect(fd, sa); err != nil {
++		return 0, err
++	}
++	ids := make([]byte, 16)
++	rand.Read(ids)
++	dcid, scid := ids[:8], ids[8:]
++	probe := BuildVNProbe(dcid, scid)
++	tv := unix.NsecToTimeval(int64(timeout))
++	unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
++	start := time.Now()
++	if _, err := unix.Write(fd, probe); err != nil {
++		return 0, err
++	}
++	buf := make([]byte, 1500)
++	for {
++		n, err := unix.Read(fd, buf)
++		if err != nil {
++			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
++				return 0, errors.New("timeout")
++			}
++			return 0, err
++		}
++		if IsVNReply(buf[:n], dcid, scid) {
++			return time.Since(start), nil
++		}
++		if time.Since(start) >= timeout {
++			return 0, errors.New("timeout")
++		}
++	}
++}
++
++// ProbeTCP times a TCP connect to ip:port: a SYN-ACK or a RST (ECONNREFUSED) both measure one
++// round trip. The connection is reset right away (SO_LINGER 0), no data is sent.
++func ProbeTCP(ip net.IP, port int, timeout time.Duration, prepare func(fd int) bool) (time.Duration, error) {
++	sa, family := sockaddr(ip, port)
++	fd, err := unix.Socket(family, unix.SOCK_STREAM|unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC, unix.IPPROTO_TCP)
++	if err != nil {
++		return 0, err
++	}
++	defer unix.Close(fd)
++	unix.SetsockoptLinger(fd, unix.SOL_SOCKET, unix.SO_LINGER, &unix.Linger{Onoff: 1, Linger: 0})
++	if prepare != nil && !prepare(fd) {
++		return 0, ErrPrepare
++	}
++	start := time.Now()
++	err = unix.Connect(fd, sa)
++	if err != nil && !errors.Is(err, unix.EINPROGRESS) {
++		if errors.Is(err, unix.ECONNREFUSED) {
++			return time.Since(start), nil
++		}
++		return 0, err
++	}
++	if err == nil {
++		return time.Since(start), nil
++	}
++	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLOUT}}
++	for {
++		left := timeout - time.Since(start)
++		if left <= 0 {
++			return 0, errors.New("timeout")
++		}
++		n, err := unix.Poll(fds, int(left/time.Millisecond)+1)
++		if errors.Is(err, unix.EINTR) {
++			continue
++		}
++		if err != nil {
++			return 0, err
++		}
++		if n == 0 {
++			return 0, errors.New("timeout")
++		}
++		break
++	}
++	rtt := time.Since(start)
++	soErr, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ERROR)
++	if err != nil {
++		return 0, err
++	}
++	if soErr == 0 || unix.Errno(soErr) == unix.ECONNREFUSED {
++		return rtt, nil
++	}
++	return 0, unix.Errno(soErr)
++}
+diff --git a/dualnet/probe_linux_test.go b/dualnet/probe_linux_test.go
+new file mode 100644
+index 0000000..70f3f35
+--- /dev/null
++++ b/dualnet/probe_linux_test.go
+@@ -0,0 +1,89 @@
++//go:build linux
++
++package dualnet
++
++import (
++	"context"
++	"crypto/rand"
++	"crypto/rsa"
++	"crypto/tls"
++	"crypto/x509"
++	"crypto/x509/pkix"
++	"math/big"
++	"net"
++	"testing"
++	"time"
++
++	apernetquic "github.com/apernet/quic-go"
++	"github.com/quic-go/quic-go"
++)
++
++func selfSigned(t *testing.T) tls.Certificate {
++	key, _ := rsa.GenerateKey(rand.Reader, 2048)
++	tpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "probe"}, NotAfter: time.Now().Add(time.Hour)}
++	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
++}
++
++// A real quic-go server (as used by Hysteria2 / Juicity servers) answers the probe.
++func TestProbeQUICAgainstQuicGo(t *testing.T) {
++	ln, err := quic.ListenAddr("127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{selfSigned(t)}, NextProtos: []string{"h3"}}, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer ln.Close()
++	go ln.Accept(context.Background())
++	addr := ln.Addr().(*net.UDPAddr)
++	prepared := false
++	rtt, err := ProbeQUIC(addr.IP, addr.Port, time.Second, func(fd int) bool { prepared = true; return true })
++	if err != nil || !prepared {
++		t.Fatalf("probe failed: %v", err)
++	}
++	t.Logf("quic-vn rtt %v", rtt)
++
++	// nothing listening -> timeout (loopback ICMP unreachable shows up as ECONNREFUSED)
++	if _, err := ProbeQUIC(addr.IP, 1, 300*time.Millisecond, nil); err == nil {
++		t.Fatal("probe to closed port succeeded")
++	}
++	// a failing prepare (protect/bind) aborts
++	if _, err := ProbeQUIC(addr.IP, addr.Port, time.Second, func(int) bool { return false }); err != ErrPrepare {
++		t.Fatalf("prepare failure: %v", err)
++	}
++}
++
++// The quic-go fork used by Hysteria2 servers (without salamander obfuscation) answers too.
++func TestProbeQUICAgainstHysteriaQuicGo(t *testing.T) {
++	ln, err := apernetquic.ListenAddr("127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{selfSigned(t)}, NextProtos: []string{"h3"}}, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer ln.Close()
++	go ln.Accept(context.Background())
++	addr := ln.Addr().(*net.UDPAddr)
++	if _, err := ProbeQUIC(addr.IP, addr.Port, time.Second, nil); err != nil {
++		t.Fatalf("probe failed: %v", err)
++	}
++}
++
++func TestProbeTCP(t *testing.T) {
++	ln, err := net.Listen("tcp4", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	port := ln.Addr().(*net.TCPAddr).Port
++	if _, err := ProbeTCP(net.IPv4(127, 0, 0, 1), port, time.Second, nil); err != nil {
++		t.Fatalf("open port: %v", err)
++	}
++	ln.Close()
++	// closed port answers RST: still a round trip
++	if _, err := ProbeTCP(net.IPv4(127, 0, 0, 1), port, time.Second, nil); err != nil {
++		t.Fatalf("closed port (RST): %v", err)
++	}
++	// unroutable (TEST-NET-1, dropped) -> timeout or unreachable
++	if _, err := ProbeTCP(net.IPv4(192, 0, 2, 1), 443, 300*time.Millisecond, nil); err == nil {
++		t.Fatal("black hole answered")
++	}
++}
+diff --git a/dualnet/udpprobe.go b/dualnet/udpprobe.go
+new file mode 100644
+index 0000000..62d5f57
+--- /dev/null
++++ b/dualnet/udpprobe.go
+@@ -0,0 +1,171 @@
++/*
++Copyright (C) 2026 Guise contributors
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with this program.  If not, see <https://www.gnu.org/licenses/>.
++*/
++
++package dualnet
++
++import (
++	"bytes"
++	"encoding/binary"
++	"sync"
++	"time"
++)
++
++// Active probing for UDP/QUIC proxy sessions (no TCP_INFO there).
++
++// ProbeVersion is a reserved QUIC version of the 0x?a?a?a?a form (RFC 9000 §15), which no
++// server supports, so a QUIC server must answer with a Version Negotiation packet.
++const ProbeVersion = 0x1a2a3a4a
++
++// ProbeSize: servers only answer unknown versions in datagrams of at least 1200 bytes.
++const ProbeSize = 1200
++
++// BuildVNProbe returns a 1200-byte QUIC long-header packet with version ProbeVersion.
++func BuildVNProbe(dcid, scid []byte) []byte {
++	b := make([]byte, 0, ProbeSize)
++	b = append(b, 0xc0|0x0f) // long header, fixed bit, arbitrary type bits
++	b = binary.BigEndian.AppendUint32(b, ProbeVersion)
++	b = append(b, byte(len(dcid)))
++	b = append(b, dcid...)
++	b = append(b, byte(len(scid)))
++	b = append(b, scid...)
++	for len(b) < ProbeSize {
++		b = append(b, 0)
++	}
++	return b
++}
++
++// IsVNReply reports whether pkt is a Version Negotiation packet answering a probe sent with
++// (dcid, scid): long header, version 0, and the connection IDs echoed swapped.
++func IsVNReply(pkt, dcid, scid []byte) bool {
++	if len(pkt) < 7 || pkt[0]&0x80 == 0 || binary.BigEndian.Uint32(pkt[1:5]) != 0 {
++		return false
++	}
++	p := pkt[5:]
++	dl := int(p[0])
++	if len(p) < 1+dl+1 || !bytes.Equal(p[1:1+dl], scid) {
++		return false
++	}
++	p = p[1+dl:]
++	sl := int(p[0])
++	if len(p) < 1+sl || !bytes.Equal(p[1:1+sl], dcid) {
++		return false
++	}
++	return len(p[1+sl:]) >= 4 && len(p[1+sl:])%4 == 0 // at least one supported version
++}
++
++type ProbeMethod int
++
++const (
++	// MethodQUIC sends a QUIC version-negotiation probe to the session's server ip:port.
++	MethodQUIC ProbeMethod = iota
++	// MethodTCP times a TCP connect to the same ip:port (SYN-ACK or RST both count).
++	MethodTCP
++	// MethodNone: nothing answers; the destination is not probed any more.
++	MethodNone
++)
++
++func (m ProbeMethod) String() string {
++	switch m {
++	case MethodQUIC:
++		return "quic-vn"
++	case MethodTCP:
++		return "tcp-connect"
++	default:
++		return "off"
++	}
++}
++
++const (
++	// rounds without any reply (on any network) before trying the next method
++	unprovenRoundsBeforeFallback = 2
++	// rounds without any reply after the method had worked before it is re-evaluated
++	provenRoundsBeforeReset = 5
++)
++
++// DestProber chooses how one UDP server is probed. Timeouts only count as failures (loss)
++// once the method has been seen working for this server, so a server that never answers
++// probes (e.g. Hysteria2 with salamander obfuscation, WireGuard) does not make a network look
++// dead: the prober falls back QUIC → TCP → off instead.
++type DestProber struct {
++	Method       ProbeMethod
++	Proven       bool
++	failedRounds int
++}
++
++// RoundDone records a probe round (one probe per network). It returns whether the round's
++// timeouts should be reported as failures, and whether the method changed.
++func (d *DestProber) RoundDone(anyReply bool) (reportTimeouts bool, changed bool) {
++	reportTimeouts = d.Proven
++	if anyReply {
++		changed = !d.Proven
++		d.Proven = true
++		d.failedRounds = 0
++		return
++	}
++	d.failedRounds++
++	if d.Proven {
++		if d.failedRounds >= provenRoundsBeforeReset {
++			d.Proven = false
++			d.failedRounds = 0
++			changed = true
++		}
++		return
++	}
++	if d.failedRounds >= unprovenRoundsBeforeFallback && d.Method != MethodNone {
++		d.Method++
++		d.failedRounds = 0
++		changed = true
++	}
++	return
++}
++
++// UDPSchedule fires a probe round when at least Threshold bytes were sent over UDP split
++// sessions since the last round and at least MinInterval has passed. MinInterval 0 disables.
++type UDPSchedule struct {
++	access      sync.Mutex
++	threshold   uint64
++	minInterval time.Duration
++	acc         uint64
++	last        time.Time
++}
++
++func (s *UDPSchedule) Configure(threshold uint64, minInterval time.Duration) {
++	s.access.Lock()
++	defer s.access.Unlock()
++	s.threshold, s.minInterval, s.acc, s.last = threshold, minInterval, 0, time.Time{}
++}
++
++func (s *UDPSchedule) Enabled() bool {
++	s.access.Lock()
++	defer s.access.Unlock()
++	return s.minInterval > 0 && s.threshold > 0
++}
++
++func (s *UDPSchedule) Add(n uint64, now time.Time) bool {
++	s.access.Lock()
++	defer s.access.Unlock()
++	if s.minInterval <= 0 || s.threshold == 0 {
++		return false
++	}
++	s.acc += n
++	if s.acc < s.threshold || (!s.last.IsZero() && now.Sub(s.last) < s.minInterval) {
++		return false
++	}
++	s.acc = 0
++	s.last = now
++	return true
++}
+diff --git a/dualnet/udpprobe_test.go b/dualnet/udpprobe_test.go
+new file mode 100644
+index 0000000..7c7bb0d
+--- /dev/null
++++ b/dualnet/udpprobe_test.go
+@@ -0,0 +1,84 @@
++package dualnet
++
++import (
++	"bytes"
++	"encoding/binary"
++	"testing"
++	"time"
++)
++
++func TestVNProbeFormat(t *testing.T) {
++	dcid := []byte{1, 2, 3, 4, 5, 6, 7, 8}
++	scid := []byte{9, 10, 11, 12}
++	p := BuildVNProbe(dcid, scid)
++	if len(p) != 1200 || p[0]&0xc0 != 0xc0 || binary.BigEndian.Uint32(p[1:5]) != ProbeVersion {
++		t.Fatal("bad probe header")
++	}
++	if p[5] != 8 || !bytes.Equal(p[6:14], dcid) || p[14] != 4 || !bytes.Equal(p[15:19], scid) {
++		t.Fatal("bad connection ids")
++	}
++	// a VN reply echoes the ids swapped
++	reply := []byte{0x80, 0, 0, 0, 0, 4}
++	reply = append(reply, scid...)
++	reply = append(reply, 8)
++	reply = append(reply, dcid...)
++	reply = append(reply, 0, 0, 0, 1)
++	if !IsVNReply(reply, dcid, scid) {
++		t.Fatal("valid reply rejected")
++	}
++	bad := append([]byte{}, reply...)
++	bad[6] ^= 0xff
++	if IsVNReply(bad, dcid, scid) || IsVNReply(reply[:10], dcid, scid) {
++		t.Fatal("bad reply accepted")
++	}
++}
++
++func TestDestProberFallback(t *testing.T) {
++	var d DestProber
++	if r, _ := d.RoundDone(false); r || d.Method != MethodQUIC {
++		t.Fatal("first timeout must not count")
++	}
++	if _, ch := d.RoundDone(false); !ch || d.Method != MethodTCP {
++		t.Fatal("should fall back to TCP after 2 silent rounds")
++	}
++	d.RoundDone(false)
++	d.RoundDone(false)
++	if d.Method != MethodNone {
++		t.Fatal("should give up after TCP is silent too")
++	}
++
++	var q DestProber
++	if r, ch := q.RoundDone(true); r || !ch || !q.Proven {
++		t.Fatal("reply should prove QUIC")
++	}
++	if r, _ := q.RoundDone(false); !r {
++		t.Fatal("timeouts after proof are loss")
++	}
++	for i := 0; i < 4; i++ {
++		q.RoundDone(false)
++	}
++	if q.Proven || q.Method != MethodQUIC {
++		t.Fatal("5 silent rounds should reset the proof")
++	}
++}
++
++func TestUDPSchedule(t *testing.T) {
++	var s UDPSchedule
++	now := time.Unix(1000, 0)
++	if s.Add(1<<30, now) {
++		t.Fatal("unconfigured schedule fired")
++	}
++	s.Configure(256*1024, 10*time.Second)
++	if s.Add(100*1024, now) || !s.Add(200*1024, now) {
++		t.Fatal("threshold")
++	}
++	if s.Add(1<<20, now.Add(5*time.Second)) {
++		t.Fatal("min interval not respected")
++	}
++	if !s.Add(0, now.Add(10*time.Second)) {
++		t.Fatal("accumulated bytes should fire after the interval")
++	}
++	if s.Add(0, now.Add(30*time.Second)) {
++		t.Fatal("no traffic, no probe")
++	}
++}
+diff --git a/multinet.go b/multinet.go
+index 296a85f..ee552b1 100644
+--- a/multinet.go
++++ b/multinet.go
+@@ -50,6 +50,13 @@ type SocketBinder interface {
+ 	// retransmitted share of segments sent since the previous sample of that connection.
+ 	// failed reports a connect error/timeout or a stalled connection (repeated RTO).
+ 	ReportSample(network string, rttMicros int64, rttVarMicros int64, loss float64, failed bool)
++	// ActiveNetworks returns the labels of the networks currently usable, comma separated.
++	ActiveNetworks() string
++	// BindSocketTo binds fd to the network with the given label (for active UDP probes).
++	BindSocketTo(fd int32, network string) bool
++	// UdpProbeState tells which probe method is used for a UDP server ("quic-vn",
++	// "tcp-connect", "off") and whether it has been answered yet.
++	UdpProbeState(destination string, method string, proven bool)
+ }
+ 
+ var (
+diff --git a/sampler.go b/sampler.go
+index 499a43a..c1deda3 100644
+--- a/sampler.go
++++ b/sampler.go
+@@ -76,6 +76,7 @@ func resetSampler() {
+ 	defer samplerAccess.Unlock()
+ 	samplerConns = map[*trackedConn]struct{}{}
+ 	samplerTrigger.Reset()
++	resetUDPSampler()
+ }
+ 
+ func readTCPInfo(raw syscall.RawConn) (*unix.TCPInfo, error) {
+@@ -166,7 +167,8 @@ type tickSample struct {
+ // nothing left to watch.
+ func samplerOnce() bool {
+ 	samplerAccess.Lock()
+-	if len(samplerConns) == 0 {
++	udpTick(time.Now())
++	if len(samplerConns) == 0 && len(udpConns) == 0 {
+ 		samplerRunning = false
+ 		samplerAccess.Unlock()
+ 		return false
+diff --git a/udpsampler.go b/udpsampler.go
+new file mode 100644
+index 0000000..5a94950
+--- /dev/null
++++ b/udpsampler.go
+@@ -0,0 +1,245 @@
++/*
++Copyright (C) 2026 Guise contributors
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with this program.  If not, see <https://www.gnu.org/licenses/>.
++*/
++
++package libexclavecore
++
++// Guise: active probing for UDP/QUIC split sessions (Hysteria2, TUIC, Juicity, mKCP, ...),
++// which have no TCP_INFO. Driven by the same 1 s sampler tick: bytes written to split UDP
++// sockets are counted; once "sample bytes" were sent AND the UDP probe interval has passed, one
++// probe round runs: for the (up to two) busiest UDP servers, one probe per available network,
++// bound to that network. Probe = QUIC version negotiation (1200-byte datagram with a reserved
++// version, every QUIC server answers), falling back to a TCP connect to the same ip:port
++// (SYN-ACK or RST), then off, for servers that answer neither. No traffic, no probes.
++
++import (
++	"net"
++	"sort"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"time"
++
++	"github.com/exclavenetwork/libexclavecore/dualnet"
++)
++
++const (
++	udpProbeTimeout  = 2 * time.Second
++	udpProbeMaxDests = 2
++	udpProbeDestIdle = 5 * time.Minute // forget per-server probe state after this
++)
++
++type countingPacketConn struct {
++	net.PacketConn
++	sent   atomic.Uint64
++	closed atomic.Bool
++}
++
++func (c *countingPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
++	n, err := c.PacketConn.WriteTo(p, addr)
++	if n > 0 {
++		c.sent.Add(uint64(n))
++	}
++	return n, err
++}
++
++func (c *countingPacketConn) Close() error {
++	c.closed.Store(true)
++	return c.PacketConn.Close()
++}
++
++type trackedUDP struct {
++	conn     *countingPacketConn
++	dest     *net.UDPAddr
++	lastSent uint64
++}
++
++type udpDestState struct {
++	prober   dualnet.DestProber
++	lastSeen time.Time
++}
++
++var (
++	udpSchedule     dualnet.UDPSchedule
++	udpConns        = map[*trackedUDP]struct{}{}
++	udpDests        = map[string]*udpDestState{}
++	udpProtector    Protector
++	udpRoundRunning atomic.Bool
++)
++
++// SetDualNetUDPProbe sets the minimum seconds between UDP probe rounds (0 disables). Probing
++// also needs SetDualNetSampleBytes > 0, which is the traffic needed between two rounds.
++func SetDualNetUDPProbe(minIntervalSeconds int32) {
++	udpSchedule.Configure(samplerTrigger.Threshold(), time.Duration(minIntervalSeconds)*time.Second)
++}
++
++func resetUDPSampler() {
++	udpConns = map[*trackedUDP]struct{}{}
++	udpDests = map[string]*udpDestState{}
++}
++
++func trackSplitUDP(conn net.PacketConn, dest *net.UDPAddr, network string, protector Protector) net.PacketConn {
++	if !udpSchedule.Enabled() || dest == nil {
++		return conn
++	}
++	cc := &countingPacketConn{PacketConn: conn}
++	samplerAccess.Lock()
++	defer samplerAccess.Unlock()
++	udpConns[&trackedUDP{conn: cc, dest: dest}] = struct{}{}
++	udpProtector = protector
++	if !samplerRunning {
++		samplerRunning = true
++		go samplerLoop()
++	}
++	return cc
++}
++
++// udpTick is called by samplerOnce with samplerAccess held.
++func udpTick(now time.Time) {
++	var total uint64
++	perDest := map[string]uint64{}
++	addrs := map[string]*net.UDPAddr{}
++	for u := range udpConns {
++		sent := u.conn.sent.Load()
++		delta := sent - u.lastSent
++		u.lastSent = sent
++		if u.conn.closed.Load() {
++			delete(udpConns, u)
++		}
++		if delta == 0 {
++			continue
++		}
++		total += delta
++		// keyed by server IP: with Hysteria2 port hopping the port changes, the server does not
++		key := u.dest.IP.String()
++		perDest[key] += delta
++		addrs[key] = u.dest
++	}
++	for key, st := range udpDests {
++		if now.Sub(st.lastSeen) > udpProbeDestIdle {
++			delete(udpDests, key)
++		}
++	}
++	for key := range perDest {
++		st := udpDests[key]
++		if st == nil {
++			st = &udpDestState{}
++			udpDests[key] = st
++		}
++		st.lastSeen = now
++	}
++	if total == 0 || !udpSchedule.Add(total, now) || udpRoundRunning.Load() {
++		return
++	}
++	keys := make([]string, 0, len(perDest))
++	for key := range perDest {
++		if udpDests[key].prober.Method != dualnet.MethodNone {
++			keys = append(keys, key)
++		}
++	}
++	if len(keys) == 0 {
++		return
++	}
++	sort.Slice(keys, func(i, j int) bool { return perDest[keys[i]] > perDest[keys[j]] })
++	if len(keys) > udpProbeMaxDests {
++		keys = keys[:udpProbeMaxDests]
++	}
++	targets := make([]*net.UDPAddr, len(keys))
++	for i, key := range keys {
++		targets[i] = addrs[key]
++	}
++	udpRoundRunning.Store(true)
++	go udpProbeRound(targets, udpProtector)
++}
++
++func udpProbeRound(targets []*net.UDPAddr, protector Protector) {
++	defer udpRoundRunning.Store(false)
++	binder := currentSocketBinder()
++	if binder == nil {
++		return
++	}
++	var networks []string
++	for _, n := range strings.Split(binder.ActiveNetworks(), ",") {
++		if n = strings.TrimSpace(n); n != "" {
++			networks = append(networks, n)
++		}
++	}
++	if len(networks) == 0 {
++		return
++	}
++	for _, target := range targets {
++		key := target.IP.String()
++		samplerAccess.Lock()
++		st := udpDests[key]
++		samplerAccess.Unlock()
++		if st == nil {
++			continue
++		}
++		method := st.prober.Method
++		type result struct {
++			network string
++			rtt     time.Duration
++			err     error
++		}
++		results := make([]result, len(networks))
++		var wg sync.WaitGroup
++		for i, network := range networks {
++			wg.Add(1)
++			go func(i int, network string) {
++				defer wg.Done()
++				prepare := func(fd int) bool {
++					if protector != nil && !protector.Protect(int32(fd)) {
++						return false
++					}
++					return binder.BindSocketTo(int32(fd), network)
++				}
++				var rtt time.Duration
++				var err error
++				if method == dualnet.MethodQUIC {
++					rtt, err = dualnet.ProbeQUIC(target.IP, target.Port, udpProbeTimeout, prepare)
++				} else {
++					rtt, err = dualnet.ProbeTCP(target.IP, target.Port, udpProbeTimeout, prepare)
++				}
++				results[i] = result{network, rtt, err}
++			}(i, network)
++		}
++		wg.Wait()
++		anyReply := false
++		for _, r := range results {
++			if r.err == nil {
++				anyReply = true
++			}
++		}
++		samplerAccess.Lock()
++		reportTimeouts, changed := st.prober.RoundDone(anyReply)
++		newMethod, proven := st.prober.Method, st.prober.Proven
++		samplerAccess.Unlock()
++		for _, r := range results {
++			switch {
++			case r.err == nil:
++				reportSample(r.network, r.rtt.Microseconds(), -1, 0, false)
++			case r.err == dualnet.ErrPrepare:
++				// network went away / bind refused: not a measurement
++			case reportTimeouts:
++				reportSample(r.network, 0, -1, 1, true)
++			}
++		}
++		if changed || method != newMethod {
++			newError("dual-network: UDP probe for ", target, ": ", newMethod.String(), " proven=", proven).AtInfo().WriteToLog()
++			binder.UdpProbeState(target.String(), newMethod.String(), proven)
++		}
++	}
 +}
 -- 
 2.47.3

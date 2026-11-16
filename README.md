@@ -26,8 +26,14 @@
 - Splitting only happens with a remote proxy profile (SS, VMess, VLESS, Trojan, Hysteria2, …), so your exit IP is always your server. With a ByeDPI profile, traffic stays on a single network of your choice.
 - Two balancing modes:
   - **1:1**: new connections alternate between the networks.
-  - **Auto**: weights follow the latency, jitter and retransmissions measured on the real proxy connections. No probe packets are sent. Every N KB sent on a network (default 256 KB), Guise reads the kernel's TCP statistics (`TCP_INFO`) of the busiest live connection on that network; no traffic, no sampling. A network whose connections fail or stall is taken out of rotation, all new connections go to the other one, and it is retried after 30 seconds.
+  - **Auto**: weights follow the latency, jitter and loss of each network, measured only while traffic flows:
+    - **TCP-based profiles** (VLESS, VMess, Trojan, Shadowsocks…) are measured passively, with no extra packets. Every N KB sent on a network (default 256 KB), Guise reads the kernel's TCP statistics (`TCP_INFO`: RTT, RTT variance, retransmissions) of the busiest live connection on that network.
+    - **UDP/QUIC-based profiles** (Hysteria2, TUIC, Juicity, mKCP…) have no such statistics. While traffic flows, Guise sends one small probe to the server over each network, at most once every 10 seconds by default. The probe is a QUIC version-negotiation packet, which every QUIC server answers. If the server doesn't answer, for example with obfuscation, Guise falls back to timing a TCP connect to the same address; if nothing answers, probing stops for that server.
+    - A network whose connections fail or stall is taken out of rotation, all new connections go to the other one, and it is retried after 30 seconds.
 - Splitting works per connection, so a single connection doesn't get the combined bandwidth. Packet-level aggregation (Speedify-style) is planned.
+
+### Hysteria2: disable Brutal loss compensation
+- A per-profile switch. When an upload speed is set, Hysteria2 uses Brutal, which normally raises its send rate by up to 25% to make up for packet loss. With this switch on, it sends exactly the configured upload rate. This is gentler on lossy or policed links.
 
 ### Inherited from Exclave
 Anti-detection features such as uTLS fingerprints, REALITY, ECH, custom verification SNI, TLS fragmentation, XHTTP, Hysteria2 port hopping and obfuscation, and mux padding, plus groups, subscriptions, routing and proxy chains.

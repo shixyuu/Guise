@@ -89,10 +89,12 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
             DataStore.dualNetSingleNetwork,
             DataStore.dualNetSampleKb,
             !byedpiMain,
+            DataStore.dualNetUdpProbeInterval,
         )
         manager.start()
         Libexclavecore.setSocketBinder(manager)
         Libexclavecore.setDualNetSampleBytes(manager.sampleBytes)
+        Libexclavecore.setDualNetUDPProbe(manager.udpProbeIntervalSeconds) // after sample bytes
         dualNetwork = manager
         if (service !is VpnService) {
             // plain proxy mode has no TUN dialer; install one so sockets reach the binder
@@ -216,6 +218,7 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
 
         dualNetwork?.let {
             Libexclavecore.setDualNetSampleBytes(0)
+            Libexclavecore.setDualNetUDPProbe(0)
             Libexclavecore.setSocketBinder(null)
             it.stop()
             dualNetwork = null

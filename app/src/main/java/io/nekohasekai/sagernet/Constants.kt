@@ -135,6 +135,7 @@ object Key {
     const val DUAL_NET_STRATEGY = "dualNetStrategy"
     const val DUAL_NET_SINGLE = "dualNetSingleNetwork"
     const val DUAL_NET_SAMPLE_KB = "dualNetSampleKb"
+    const val DUAL_NET_UDP_PROBE_INTERVAL = "dualNetUdpProbeInterval"
     const val DUAL_NET_STATUS = "dualNetStatus"
     const val BYEDPI_PROBE_TARGETS = "byedpiProbeTargets"
     const val BYEDPI_PROBE_CUSTOM = "byedpiProbeCustom"
@@ -280,6 +281,7 @@ object Key {
     const val SERVER_HYSTERIA2_GECKO_MIN_PACKET_SIZE = "serverHysteria2GeckoMinPacketSize"
     const val SERVER_HYSTERIA2_GECKO_MAX_PACKET_SIZE = "serverHysteria2GeckoMaxPacketSize"
     const val SERVER_HYSTERIA2_CHROME_PARROT = "serverHysteria2ChromeParrot"
+    const val SERVER_HYSTERIA2_DISABLE_LOSS_COMPENSATION = "serverHysteria2DisableLossCompensation"
 
     const val SERVER_SNELL_VERSION = "serverSnellVersion"
     const val SERVER_SNELL_REUSE = "serverSnellReuse"

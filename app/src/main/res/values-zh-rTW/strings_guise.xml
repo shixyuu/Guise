@@ -79,4 +79,8 @@
     <string name="dual_net_status_idle">未執行（開啟此選項後啟動 Guise）</string>
     <string name="dual_net_status_split">正在分流代理連線</string>
     <string name="dual_net_status_single">單一網路（ByeDPI / 直連設定檔）</string>
+    <string name="hysteria2_disable_loss_compensation">關閉丟包補償（Brutal）</string>
+    <string name="hysteria2_disable_loss_compensation_sum">僅在設定了上傳速度（使用 Brutal 擁塞控制）時生效。Brutal 預設會依 1/(1 − 丟包率) 提高傳送速率來彌補丟包（最多 1.25 倍）；開啟後嚴格依設定的上傳速度傳送，不再補償丟包，對丟包多或被限速的線路更溫和。</string>
+    <string name="dual_net_udp_probe">UDP 探測最短間隔（秒，自動模式）</string>
+    <string name="dual_net_udp_probe_sum">UDP/QUIC 類設定檔（Hysteria2、TUIC、Juicity、mKCP 等）無法被動測量，因此在有流量時會透過每個網路向伺服器傳送一個很小的探測封包（QUIC 版本協商，不行則改用 TCP 連線）。每輪之間至少間隔這麼多秒，且需先達到「取樣觸發流量」。0 為關閉，預設 10。</string>
 </resources>

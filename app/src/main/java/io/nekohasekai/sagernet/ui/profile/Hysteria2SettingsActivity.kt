@@ -71,6 +71,7 @@ class Hysteria2SettingsActivity : ProfileSettingsActivity<Hysteria2Bean>() {
         DataStore.serverHysteria2GeckoMaxPacketSize = geckoMaxPacketSize
         DataStore.serverServerNameToVerify = serverNameToVerify
         DataStore.serverHysteria2ChromeParrot = chromeParrot
+        DataStore.serverHysteria2DisableLossCompensation = disableLossCompensation
     }
 
     override fun Hysteria2Bean.serialize() {
@@ -109,6 +110,7 @@ class Hysteria2SettingsActivity : ProfileSettingsActivity<Hysteria2Bean>() {
         geckoMaxPacketSize = DataStore.serverHysteria2GeckoMaxPacketSize
         serverNameToVerify = DataStore.serverServerNameToVerify
         chromeParrot = DataStore.serverHysteria2ChromeParrot
+        disableLossCompensation = DataStore.serverHysteria2DisableLossCompensation
     }
 
     override fun PreferenceFragmentCompat.createPreferences(

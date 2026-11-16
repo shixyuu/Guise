@@ -60,6 +60,8 @@ public class Hysteria2Bean extends AbstractBean {
     public Integer geckoMaxPacketSize;
     public String serverNameToVerify;
     public Boolean chromeParrot;
+    // Guise: Brutal sends exactly up_mbps instead of compensating for loss
+    public Boolean disableLossCompensation;
 
     @Override
     public void initializeDefaultValues() {
@@ -91,11 +93,12 @@ public class Hysteria2Bean extends AbstractBean {
         if (geckoMaxPacketSize == null) geckoMaxPacketSize = 0;
         if (serverNameToVerify == null) serverNameToVerify = "";
         if (chromeParrot == null) chromeParrot = false;
+        if (disableLossCompensation == null) disableLossCompensation = false;
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(12);
+        output.writeInt(13);
         super.serialize(output);
         output.writeString(auth);
         switch (obfsType) {
@@ -144,6 +147,7 @@ public class Hysteria2Bean extends AbstractBean {
         output.writeString(serverNameToVerify);
         output.writeBoolean(chromeParrot);
         output.writeString(echQueryName);
+        output.writeBoolean(disableLossCompensation);
     }
 
     @Override
@@ -245,6 +249,9 @@ public class Hysteria2Bean extends AbstractBean {
         if (version >= 12) {
             echQueryName = input.readString();
         }
+        if (version >= 13) {
+            disableLossCompensation = input.readBoolean();
+        }
     }
 
     @Override
@@ -255,6 +262,7 @@ public class Hysteria2Bean extends AbstractBean {
         }
         bean.uploadMbps = uploadMbps;
         bean.downloadMbps = downloadMbps;
+        bean.disableLossCompensation = disableLossCompensation;
         if (bean.pinnedPeerCertificateSha256 == null || bean.pinnedPeerCertificateSha256.isEmpty() && !pinnedPeerCertificateSha256.isEmpty()) {
             bean.pinnedPeerCertificateSha256 = pinnedPeerCertificateSha256;
         }

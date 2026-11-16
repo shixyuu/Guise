@@ -413,10 +413,12 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         val dualNetStrategy = findPreference<ListPreference>(Key.DUAL_NET_STRATEGY)!!
         val dualNetSampleKb = findPreference<EditTextPreference>(Key.DUAL_NET_SAMPLE_KB)!!
         val dualNetSingle = findPreference<ListPreference>(Key.DUAL_NET_SINGLE)!!
+        val dualNetUdpProbe = findPreference<EditTextPreference>(Key.DUAL_NET_UDP_PROBE_INTERVAL)!!
         val dualNetStatus = findPreference<Preference>(Key.DUAL_NET_STATUS)!!
         fun updateDualNetVisibility(enabled: Boolean, strategy: Int) {
             dualNetStrategy.isVisible = enabled
             dualNetSampleKb.isVisible = enabled && strategy == DualNet.Strategy.AUTO
+            dualNetUdpProbe.isVisible = enabled && strategy == DualNet.Strategy.AUTO
             dualNetSingle.isVisible = enabled
             dualNetStatus.isVisible = enabled
         }
@@ -436,6 +438,12 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             "${it.text ?: DualNet.DEFAULT_SAMPLE_KB} KB\n" + getString(R.string.dual_net_sample_kb_sum)
         }
         dualNetSingle.onPreferenceChangeListener = reloadListener
+        dualNetUdpProbe.setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
+        dualNetUdpProbe.onPreferenceChangeListener = reloadListener
+        dualNetUdpProbe.summaryProvider = Preference.SummaryProvider<EditTextPreference> {
+            val v = it.text ?: DualNet.DEFAULT_UDP_PROBE_INTERVAL.toString()
+            (if (v == "0") "0 (off)" else "$v s") + "\n" + getString(R.string.dual_net_udp_probe_sum)
+        }
         updateDualNetVisibility(dualNetEnabled.isChecked, DataStore.dualNetStrategy)
         updateDualNetStatus()
 

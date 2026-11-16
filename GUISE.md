@@ -232,10 +232,37 @@ connect errors/timeouts (except ECONNREFUSED) and connections stuck in ≥3 cons
 reported as failures. Samples go to Kotlin through `SocketBinder.ReportSample`. The trigger/delta/loss logic lives in
 the pure-Go package `libexclavecore/dualnet` with host-runnable tests (including one on a real loopback TCP socket).
 
-**UDP / QUIC** (Hysteria2, TUIC, …): there is no `TCP_INFO`, and quic-go's RTT stats are not reachable from the
-dialer, so UDP sessions are not measured. They are placed with the current weights (learned from TCP connections
-if any), otherwise 50/50 — with a UDP-only proxy, auto mode effectively behaves like 1:1. No active fallback probe
-was added, to keep "no extra traffic" strict.
+**UDP / QUIC: active probing (guise.8).** UDP sessions (Hysteria2, TUIC, Juicity, ShadowQUIC, mKCP, QUIC
+transport, WireGuard…) have no `TCP_INFO`, so `libexclavecore/udpsampler.go` probes them, driven by traffic. Split UDP
+sockets are wrapped in a counting `PacketConn` (Hysteria2 takes `PacketConnWrapper.Conn`, so its port-hopping sockets
+are covered too). On the same 1 s tick, bytes sent over split UDP sockets are summed. When at least `dualNetSampleKb`
+were sent **and** `dualNetUdpProbeInterval` seconds (default 10, 0 = off, clamped 3–600) have passed since the last
+round, one probe round runs: for the (up to 2) busiest UDP servers, one probe per available network
+(`SocketBinder.ActiveNetworks`). Each probe socket is `VpnService.protect`ed and bound to that network
+(`SocketBinder.BindSocketTo`). No traffic means no probes.
+- **Probe method per server IP** (`dualnet.DestProber`):
+  1. **QUIC version negotiation.** A 1200-byte long-header packet with the reserved version `0x1a2a3a4a`. Every
+     QUIC server must answer it with a Version Negotiation packet, and the reply is checked by the echoed
+     connection IDs. Verified on the box against quic-go and apernet/quic-go (the Hysteria2 server library).
+  2. If 2 rounds get no reply on any network (e.g. Hysteria2 with salamander/gecko obfuscation, WireGuard, mKCP):
+     a **TCP connect** to the same ip:port. SYN-ACK or RST both give the RTT. The socket is closed with
+     SO_LINGER 0, so no data is sent.
+  3. If that is silent for 2 rounds too: **off** for that server (the state is forgotten after 5 min idle).
+- **Loss.** Timeouts count as loss/failures only after the method has been answered at least once for that
+  server, so a server that simply never answers can't make a network look dead. After 5 silent rounds the proof is
+  reset and fallback restarts.
+- Probe RTTs feed the same balancer (jitter = variation between consecutive probe RTTs).
+- The status line shows `UDP probe: <server> quic-vn | tcp-connect | off`.
+- Cost per round: about 1.2 KB + reply per network per server.
+
+**Hysteria2 "disable loss compensation" (guise.8)**, per profile (`Hysteria2Bean.disableLossCompensation`,
+bean version 13, older data reads as off). It is written to the outbound `congestion.disableLossCompensation`
+only when an upload speed is set, because that is the only time the client uses Brutal. In the hysteria core
+(`congestion/brutal`), Brutal paces at `bps / ackRate`, where ackRate = acked/(acked+lost) over the last 5 s
+(≥ 50 packets), floored at 0.8. That is up to 1.25× the configured rate, and the congestion window is scaled the
+same way. The option pins ackRate to 1, so the client sends exactly the configured upload rate. It doesn't affect
+downloads: the server's Brutal toward the client follows the server's own setting. The hysteria2:// URI has no
+bandwidth parameters, so there is no share-link parameter either.
 
 **Balancer** (`dualnet/DualNet.kt`, unit-tested in `DualNetTest`): window of the last 10 samples per network;
 latency = median RTT, jitter = median kernel RTT variance (or mean RTT difference if unknown), loss = mean
@@ -248,7 +275,7 @@ lines `dual-network: …` (at most every 10 s) show networks, weights, RTT/jitte
 and `DOWN` for dead networks; the settings status line shows the same.
 
 **Limitations.** Splitting is per underlying connection: one mux / XUDP / Hysteria2 (QUIC) session stays on the
-network it was opened on. Auto mode measures TCP connections only (see UDP/QUIC above) and needs traffic: right after start, or when idle, weights are neutral/stale.
+network it was opened on. Auto mode needs traffic (TCP: passive; UDP: probes only while traffic flows): right after start, or when idle, weights are neutral/stale.
 External plugin processes are not split. In proxy-only mode ByeDPI is not pinned. Sockets on a network that
 disappears die with it; new connections go to the remaining network. Mobile data is used even on Wi-Fi.
 

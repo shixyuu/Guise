@@ -48,6 +48,7 @@ class DualNetworkManager(
     private val singleNetwork: Int,
     private val sampleKb: Int,
     private val splitAllowed: Boolean,
+    private val udpProbeInterval: Int = DualNet.DEFAULT_UDP_PROBE_INTERVAL,
 ) : SocketBinder {
 
     companion object {
@@ -69,6 +70,12 @@ class DualNetworkManager(
     private var weights: Map<String, Double> = emptyMap()
     private val callbacks = mutableListOf<ConnectivityManager.NetworkCallback>()
     private val samplesSeen = ConcurrentHashMap<String, AtomicLong>()
+    private val udpProbeStates = ConcurrentHashMap<String, String>()
+
+    /** Minimum seconds between active UDP probe rounds handed to libexclavecore (0 = off). */
+    val udpProbeIntervalSeconds: Int
+        get() = if (sampleBytes == 0L || udpProbeInterval <= 0) 0
+        else udpProbeInterval.coerceIn(DualNet.MIN_UDP_PROBE_INTERVAL, DualNet.MAX_UDP_PROBE_INTERVAL)
     @Volatile
     private var lastStatusWrite = 0L
     @Volatile
@@ -189,12 +196,32 @@ class DualNetworkManager(
         recompute(forceStatus = failed)
     }
 
+    override fun activeNetworks(): String = available().joinToString(",")
+
+    override fun bindSocketTo(fd: Int, network: String): Boolean {
+        val target = networks[network] ?: return false
+        return try {
+            ParcelFileDescriptor.fromFd(fd).use { target.bindSocket(it.fileDescriptor) }
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "dual-network: probe bind to $network failed: ${e.message}")
+            false
+        }
+    }
+
+    override fun udpProbeState(destination: String, method: String, proven: Boolean) {
+        val state = if (method == "off") "off (no reply)" else if (proven) method else "$method?"
+        udpProbeStates[destination] = state
+        Log.i(TAG, "dual-network: UDP probe $destination -> $state")
+        writeStatus()
+    }
+
     // ---- status ----
 
     private fun statusLine(): String {
         val available = available()
         if (available.isEmpty()) return "no Wi-Fi / cellular network"
-        return available.joinToString(" | ") { label ->
+        val links = available.joinToString(" | ") { label ->
             val s = stats[label]
             buildString {
                 append(label)
@@ -209,6 +236,8 @@ class DualNetworkManager(
                 if (s != null && s.dead) append(" DOWN")
             }
         }
+        val udp = udpProbeStates.entries.take(2).joinToString(", ") { "${it.key} ${it.value}" }
+        return if (udp.isEmpty()) links else "$links | UDP probe: $udp"
     }
 
     private fun writeStatus() {

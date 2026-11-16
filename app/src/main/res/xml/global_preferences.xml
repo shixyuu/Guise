@@ -342,6 +342,11 @@
             app:icon="@drawable/baseline_wifi_lock_24"
             app:key="dualNetSampleKb"
             app:title="@string/dual_net_sample_kb"/>
+        <EditTextPreference
+            app:defaultValue="10"
+            app:icon="@drawable/baseline_wifi_lock_24"
+            app:key="dualNetUdpProbeInterval"
+            app:title="@string/dual_net_udp_probe"/>
         <io.nekohasekai.sagernet.widget.SimpleMenuPreference
             app:defaultValue="0"
             app:entries="@array/dual_net_single_entry"
