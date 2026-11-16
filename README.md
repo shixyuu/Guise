@@ -81,7 +81,12 @@ Some supported protocols:
 
 ## Download
 
-Get the latest build from [Releases](https://github.com/shixyuu/Guise/releases). Most phones need `arm64-v8a`. These are debug-signed preview builds; to update, just install the new APK over the old one.
+Current version: **1.0-rc1** (release candidate). Get it from [Releases](https://github.com/shixyuu/Guise/releases).
+
+- Most phones need `arm64-v8a`; older 32-bit phones need `armeabi-v7a`; `x86`/`x86_64` are for emulators and Chromebooks.
+- `*-release.apk` is the normal build (package `io.github.guise`, minified, signed with the Guise release key). Use this one.
+- `*-debug.apk` is a debuggable build for troubleshooting (package `io.github.guise.debug`). It installs side by side with the release build and keeps its own settings.
+- Release builds are always signed with the same key, so later versions install over 1.0-rc1. The certificate's SHA-256 fingerprint is listed in the release notes.
 
 Get the NaïveProxy plugin from [klzgrad/naiveproxy](https://github.com/klzgrad/naiveproxy/releases).
 
