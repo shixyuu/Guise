@@ -1,4 +1,4 @@
-Exclave is a proxy client.
+Guise is a proxy client (a fork of Exclave).
 
 Features:
 

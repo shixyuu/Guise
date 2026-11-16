@@ -6,7 +6,7 @@ include(":plugin:naive")
 
 include(":app")
 
-rootProject.name = "Exclave"
+rootProject.name = "Guise"
 
 dependencyResolutionManagement {
     @Suppress("UnstableApiUsage")

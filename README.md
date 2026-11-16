@@ -1,6 +1,8 @@
-# Exclave
+# Guise
 
-Exclave is a proxy client.
+Guise is a proxy client.
+
+> **Guise is a fork of [Exclave](https://github.com/ExclaveNetwork/Exclave)** (itself derived from SagerNet), licensed under the GNU General Public License v3.0. All credit for the original work goes to the Exclave and SagerNet authors; see License below. Links in this README that point to ExclaveNetwork refer to the upstream project.
 
 <details>
 
@@ -109,7 +111,7 @@ Exclave is licensed under the GNU General Public License as published by the Fre
 
 - Install and configure JDK 21 or 25, Go 1.27 and Go Mobile.
 - Install and configure Android SDK Platform 37.2, Android SDK Build-Tools 37.0.0, Android SDK Platform-Tools and Android NDK r30 through Android Studio or Android SDK Command-line Tools.
-- Replace `release.keystore` with your own. It can be generated with Java `keytool`.
+- Signing (Guise): no keystore is committed. Generate your own with Java `keytool`, then provide `KEYSTORE_FILE`, `KEYSTORE_PASS`, `ALIAS_NAME`, `ALIAS_PASS` via `local.properties`, environment variables, or an external properties file referenced by `GUISE_SIGNING_PROPERTIES` (path). Without them, release builds are unsigned.
 - Create a new `local.properties` file if it does not exist. Append the following lines to `local.properties`.
 ```
     KEYSTORE_PASS=your_keystore_pass
@@ -126,7 +128,7 @@ Exclave is licensed under the GNU General Public License as published by the Fre
   popd
   ```
   - Download assets: `./gradlew :app:downloadAssets`, or update assets to the latest version: `./gradlew :app:updateAssets`
-  - Build Exclave: `./gradlew :app:assembleOssRelease` (default flavor) or `./gradlew :app:assembleLegacyRelease` (legacy flavor)
+  - Build Guise: `./gradlew :app:assembleOssRelease` (default flavor) or `./gradlew :app:assembleLegacyRelease` (legacy flavor)
 
 - Windows (x64):
 
@@ -137,7 +139,7 @@ Exclave is licensed under the GNU General Public License as published by the Fre
   popd
   ```
   - Download assets: `.\gradlew.bat :app:downloadAssets`, or update assets to the latest version: `.\gradlew.bat :app:updateAssets`
-  - Build Exclave: `.\gradlew.bat :app:assembleOssRelease` (default flavor) or `.\gradlew.bat :app:assembleLegacyRelease` (legacy flavor)
+  - Build Guise: `.\gradlew.bat :app:assembleOssRelease` (default flavor) or `.\gradlew.bat :app:assembleLegacyRelease` (legacy flavor)
 
 - APK files are located in `.\app\build\outputs\apk\oss\release` (default flavor) or `.\app\build\outputs\apk\legacy\release` (legacy flavor).
 

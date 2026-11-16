@@ -231,7 +231,7 @@ class MainActivity : ThemedActivity(),
         val uri = intent.data ?: return
 
         runOnDefaultDispatcher {
-            if (uri.scheme == "exclave" && uri.host == "subscription") {
+            if (uri.scheme == "guise" && uri.host == "subscription") {
                 uri.getQueryParameter("url")?.let {
                     importSubscription(it)
                 }

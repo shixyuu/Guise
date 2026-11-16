@@ -11,3 +11,8 @@ local.properties
 jniLibs/
 go.work
 go.work.sum
+
+# Guise: signing material is never committed
+*.keystore
+*.jks
+keystore.properties

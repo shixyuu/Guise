@@ -26,6 +26,7 @@ import org.apache.tools.ant.filters.StringInputStream
 import org.gradle.api.JavaVersion
 import org.gradle.api.Project
 import org.gradle.kotlin.dsl.getByType
+import java.io.File
 import java.util.Properties
 import kotlin.io.encoding.Base64
 
@@ -105,15 +106,29 @@ fun Project.setupCommon(projectName: String = "") {
 fun Project.setupAppCommon(projectName: String = "") {
     setupCommon(projectName)
 
+    // Guise: signing config is read from (in order) local.properties, an external
+    // properties file pointed to by GUISE_SIGNING_PROPERTIES (or the
+    // GUISE_SIGNING_PROPERTIES key in local.properties), then environment variables.
+    // The keystore itself is never committed (see .gitignore).
     val lp = requireLocalProperties()
-    val keystorePwd = lp.getProperty("KEYSTORE_PASS") ?: System.getenv("KEYSTORE_PASS")
-    val alias = lp.getProperty("ALIAS_NAME") ?: System.getenv("ALIAS_NAME")
-    val pwd = lp.getProperty("ALIAS_PASS") ?: System.getenv("ALIAS_PASS")
+    val signingProps = Properties().apply {
+        val path = lp.getProperty("GUISE_SIGNING_PROPERTIES") ?: System.getenv("GUISE_SIGNING_PROPERTIES")
+        if (!path.isNullOrBlank()) {
+            val f = File(path)
+            if (f.isFile) f.inputStream().use { load(it) }
+        }
+    }
+    fun signingValue(key: String): String? =
+        lp.getProperty(key) ?: signingProps.getProperty(key) ?: System.getenv(key)
+    val keystorePwd = signingValue("KEYSTORE_PASS")
+    val alias = signingValue("ALIAS_NAME")
+    val pwd = signingValue("ALIAS_PASS")
+    val keystoreFile = signingValue("KEYSTORE_FILE")?.let { File(it) } ?: rootProject.file("release.keystore")
 
     androidApp.apply {
-        if (keystorePwd != null) {
+        if (keystorePwd != null && keystoreFile.isFile) {
             signingConfigs.create("release") {
-                storeFile = rootProject.file("release.keystore")
+                storeFile = keystoreFile
                 storePassword = keystorePwd
                 keyAlias = alias
                 keyPassword = pwd
@@ -229,7 +244,7 @@ fun Project.setupApp() {
                 (output as? VariantOutputImpl)?.let { variantOutputImpl ->
                     val versionName = variantOutputImpl.versionName.orNull.orEmpty()
                     variantOutputImpl.outputFileName.set(variantOutputImpl.outputFileName.get()
-                        .replace(project.name, "Exclave-$versionName")
+                        .replace(project.name, "Guise-$versionName")
                         .replace("-release", "")
                         .replace("-oss", "")
                     )

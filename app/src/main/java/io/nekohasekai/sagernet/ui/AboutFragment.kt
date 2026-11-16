@@ -200,6 +200,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                         .addItem(MaterialAboutActionItem.Builder()
                             .icon(R.drawable.ic_baseline_sanitizer_24)
                             .text(R.string.github)
+                            .subText(R.string.guise_fork_notice)
                             .setOnClickAction {
                                 startActivity(Intent(
                                     Intent.ACTION_VIEW,

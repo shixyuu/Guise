@@ -339,7 +339,7 @@ class SagerNet : Application(),
 
             val linkAddresses = linkProperties.linkAddresses.toSet()
             if (DataStore.logLevel == LogLevel.DEBUG && currentLinkAddresses != linkAddresses) {
-                Log.d("Exclave", "updated link addresses: " + linkAddresses.joinToString(" ", "[", "]") { it.address.hostAddress!! + "/" + it.prefixLength })
+                Log.d("Guise", "updated link addresses: " + linkAddresses.joinToString(" ", "[", "]") { it.address.hostAddress!! + "/" + it.prefixLength })
             }
             Libexclavecore.setDiscardIPv6(!linkAddresses.any { it.address is Inet6Address && !it.address.isLinkLocalAddress })
 
@@ -348,7 +348,7 @@ class SagerNet : Application(),
                 val linkAddressesChanged = currentLinkAddresses != null && !linkAddresses.containsAll(currentLinkAddresses!!)
                 if (networkChanged || linkAddressesChanged) {
                     if (DataStore.logLevel == LogLevel.DEBUG) {
-                        Log.d("Exclave", "network changed, interrupt reused connections")
+                        Log.d("Guise", "network changed, interrupt reused connections")
                     }
                     Libexclavecore.interfaceUpdate()
                 }

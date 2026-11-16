@@ -89,7 +89,7 @@ class LogcatFragment : ToolbarFragment(R.layout.layout_logcat),
                         "exclave-core:D",
                         "libexclavecore:D",
                         "libnaive:D",
-                        "Exclave:D",
+                        "Guise:D",
                         "*:S",
                     ).joinToString(",")
                 )
@@ -158,7 +158,7 @@ class LogcatFragment : ToolbarFragment(R.layout.layout_logcat),
             R.id.action_send_logcat -> {
                 val context = requireContext()
                 runOnDefaultDispatcher {
-                    val logFile = File.createTempFile("Exclave ",
+                    val logFile = File.createTempFile("Guise ",
                         ".log",
                         File(app.externalCacheDir, "log").also { it.mkdirs() })
 

@@ -31,6 +31,7 @@ import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.core.os.bundleOf
+import io.nekohasekai.sagernet.BuildConfig
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.bg.BaseService
@@ -88,9 +89,15 @@ object PluginManager {
 
     private fun initNative(pluginId: String): InitResult? {
         val flags = PackageManager.GET_META_DATA
+        // Guise: prefer plugins built for Guise, then fall back to Exclave / SagerNet-family plugins.
         var providers = SagerNet.application.packageManager.queryIntentContentProviders(
+            Intent(PluginContract.ACTION_NATIVE_PLUGIN, buildUri(pluginId, BuildConfig.APPLICATION_ID)), flags)
+            .filter { it.providerInfo.exported }
+        if (providers.isEmpty()) {
+            providers = SagerNet.application.packageManager.queryIntentContentProviders(
             Intent(PluginContract.ACTION_NATIVE_PLUGIN, buildUri(pluginId, "com.github.dyhkwong.sagernet")), flags)
             .filter { it.providerInfo.exported }
+        }
         if (providers.isEmpty()) {
             try {
                 initNativeInternal(pluginId)?.also { return InitResult(it) }
