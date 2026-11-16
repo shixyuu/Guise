@@ -114,35 +114,45 @@ with the new arguments. If byedpi rejects the arguments it exits and the service
 - ByeDPI defeats SNI/DPI-based blocking (RU/IR/TR style). It cannot help against IP blocking (e.g. most of the GFW
   blocklist); in China it is mainly useful for SNI-filtered sites on non-blocked IPs.
 
-## Probe feature (design only, not implemented)
-Goal: user enters a target (e.g. `youtube.com`, optional path); Guise tries a list of byedpi strategies and
-reports which work and how fast, then applies the best one to `byedpiArgs`.
-- **Strategies:** ship `assets/byedpi/strategies.list` adapted from ByeByeDPI's
-  `app/src/main/assets/proxytest_strategies.list` (59 lines, GPL-3.0; `{sni}` placeholder replaced with a fake SNI
-  such as `www.iana.org`). Allow a user-editable list later.
-- **Runner:** a `ByeDPIProbe` coroutine in the UI process. For each strategy: start
-  `libbyedpi.so --ip 127.0.0.1 --port <mkPort()> <args>` with `ProcessBuilder` (same command builder as runtime,
-  plus `--protect-path` when the VPN runs with the System stack, mirroring how `ConfigurationFragment` chooses the
-  protect path for URL tests), wait ~200 ms, then do N HTTPS requests to the target via
-  `java.net.Proxy(SOCKS, 127.0.0.1:port)` (logic of ByeByeDPI `SiteCheckUtils.checkSiteAccess`: follow redirects,
-  read body up to Content-Length/1 MB, count 2xx/3xx/4xx as reachable, record latency). Kill the process, next.
-  Run 2–4 strategies in parallel with a semaphore; cancellable.
-- **Why not via the core:** the probe only needs byedpi + direct sockets; going through `Libexclavecore.urlTest`
-  would need a throw-away V2RayTestInstance per strategy. Option B (later): build a test config whose outbound is
-  a SOCKS to the probe byedpi and reuse `V2RayTestInstance`/`urlTest` to measure exactly what the app will see.
-- **Network context:** when Guise's VPN is up with gVisor, the UI process (same UID) is outside the VPN, so probes
-  see the real network. With the System stack, requests from the app would loop into the VPN — bind the probe
-  socket to the underlying network (`Network.socketFactory` from `DefaultNetworkListener`) as URL tests do.
-- **UI:** "ByeDPI → Probe" preference opens `ByeDPIProbeActivity` (pattern of `StunActivity`): target field,
-  strategy count, requests per strategy, timeout; a RecyclerView of results (args, successes/attempts, median
-  latency) sorted by success then latency; tap → "Apply" writes `DataStore.byedpiArgs` and calls `needReload()`;
-  long-press → copy args.
+## Connectivity test (ByeDPI probe) — implemented in guise.3
+Entry points: Settings → ByeDPI → "Connectivity test", and a card on the main screen's Network page. Both open
+`ui/ByeDPIProbeActivity`.
+- **Inputs (persisted in DataStore `byedpiProbe*`):** sites (default www.google.com / www.youtube.com /
+  www.wikipedia.org, bare hosts become https URLs), requests per site (3), timeout (5 s), strategies in parallel
+  (3, max 4), fake SNI for `{sni}` (`google.com`, ByeByeDPI's default) and the strategy list (empty = bundled
+  `assets/byedpi/strategies.list`, a verbatim copy of ByeByeDPI's `proxytest_strategies.list` @ 7b7eecf plus
+  an attribution header). `{sni}` becomes `"<sni>"` (quoted, as ByeByeDPI's TestService does).
+- **Plan:** row 1 = direct without ByeDPI (baseline, not applicable), row 2 = the current `byedpiArgs`, then the
+  list (current args not repeated). Parsing/plan/median/sorting live in pure-JVM `byedpi/ByeDPIProbe.kt`
+  (unit-tested in `ByeDPIProbeTest`).
+- **Runner (`byedpi/ByeDPIProbeRunner.kt`, UI process):** per strategy, `ProcessBuilder` starts
+  `libbyedpi.so` via the same `ByeDPI.buildCommand` as runtime on a `mkPort()` port, waits for it to listen
+  (`ByeDPI.waitForListening`, shared with `V2RayInstance`), runs `requests × sites` HTTPS requests through
+  `Proxy(SOCKS, 127.0.0.1:port)` (sites in parallel), then kills the process. Output goes to logcat tag
+  `libbyedpi` with a `[probe:port]` prefix. Request check = ByeByeDPI `SiteCheckUtils`: follow redirects,
+  `Connection: close`, any HTTP status counts, body must reach Content-Length (or read up to 1 MB); a
+  truncated body is treated as blocked. Strategies run in parallel under a semaphore; Stop cancels the job and
+  the `finally` kills the processes.
+- **Network context:** same rule as the URL test in `ConfigurationFragment`: if Guise runs in VPN mode with the
+  System stack, the app UID is inside the tunnel, so byedpi gets `--protect-path` and the baseline requests use
+  `Network.openConnection` on the underlying network from `DefaultNetworkListener`. With gVisor or when
+  stopped, the app is outside the VPN and nothing extra is needed. Testing *through a proxy node* is not
+  supported; the help text says results describe the phone's current network only.
+- **Results:** sorted by success rate, then median latency (baseline pinned on top). Tap → dialog: Apply (writes
+  `DataStore.byedpiArgs`, `SagerNet.reloadService()` if running; settings screen refreshes the field on resume)
+  or Copy.
+- Possible later work: option B from the design (measure through a throw-away `V2RayTestInstance` so the result
+  includes the core), HTTP-only sites, per-site breakdown.
 
 ## Third-party code reused
 - hufrea/byedpi (MIT) — submodule `library/byedpi`, notice added to `assets/license/notices.txt`.
 - romanvht/ByeByeDPI (GPL-3.0, compatible): `shellSplit` (utility/ArgumentsUtils.kt, itself from a public gist),
   argument filtering idea (core/ByeDpiProxyPreferences.kt `parseCmdToArguments`), default args
-  (utility/PreferencesUtils.kt), compiler/linker flags (app/src/main/cpp/CMakeLists.txt), and — for the probe
-  design — strategies list and SiteCheckUtils logic. Attributed in `byedpi/ByeDPI.kt` and here.
+  (utility/PreferencesUtils.kt), compiler/linker flags (app/src/main/cpp/CMakeLists.txt), and for the connectivity test:
+  `app/src/main/assets/proxytest_strategies.list` (copied verbatim to `assets/byedpi/strategies.list`),
+  utility/SiteCheckUtils.kt (request/verification logic, adapted in `byedpi/ByeDPIProbeRunner.kt`),
+  services/TestService.kt + activities/TestActivity.kt + data/TestResult.kt (`{sni}` substitution, run flow,
+  result model; adapted in `byedpi/ByeDPIProbe.kt` and `ui/ByeDPIProbeActivity.kt`). Attributed in those files
+  and here.
 - dovecoteescapee/ByeDPIAndroid (GPL-3.0, last commit 2024-09) was reviewed; ByeByeDPI is its maintained successor
   and supersedes it, so nothing was taken from it directly.

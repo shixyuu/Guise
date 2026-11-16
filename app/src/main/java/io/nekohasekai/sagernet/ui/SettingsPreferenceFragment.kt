@@ -401,6 +401,10 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         byedpiDomains.setOnBindEditTextListener(EditTextPreferenceModifiers.Hosts)
         byedpiDomains.onPreferenceChangeListener = reloadListener
         byedpiArgs.onPreferenceChangeListener = reloadListener
+        findPreference<Preference>(Key.BYEDPI_PROBE)!!.setOnPreferenceClickListener {
+            startActivity(android.content.Intent(requireContext(), ByeDPIProbeActivity::class.java))
+            true
+        }
         findPreference<Preference>(Key.BYEDPI_CREATE_PROFILE)!!.setOnPreferenceClickListener {
             runOnDefaultDispatcher {
                 ProfileManager.createProfile(DataStore.currentGroupId(), SOCKSBean().apply {
@@ -675,6 +679,10 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
 
         if (::isProxyApps.isInitialized) {
             isProxyApps.isChecked = DataStore.proxyApps
+        }
+        // Guise: the connectivity test may have changed the ByeDPI arguments.
+        findPreference<EditTextPreference>(Key.BYEDPI_ARGS)?.let {
+            if (it.text != DataStore.byedpiArgs) it.text = DataStore.byedpiArgs
         }
     }
 

@@ -46,6 +46,9 @@ class NetworkFragment : NamedFragment(R.layout.layout_network) {
             )
             insets
         }
+        binding.byedpiProbe.setOnClickListener {
+            startActivity(Intent(requireContext(), ByeDPIProbeActivity::class.java))
+        }
         binding.stunTest.setOnClickListener {
             startActivity(Intent(requireContext(), StunActivity::class.java))
         }

@@ -95,19 +95,7 @@ abstract class V2RayInstance(
         Log.i("Guise", "ByeDPI: " + commands.joinToString(" "))
         processes.start(commands)
         // Don't let the core dial 127.0.0.1:port before byedpi is listening.
-        val ready = runBlocking(Dispatchers.IO) {
-            withTimeoutOrNull(1500L) {
-                while (true) {
-                    try {
-                        Socket().use { it.connect(InetSocketAddress(LOCALHOST, port), 100) }
-                        break
-                    } catch (_: IOException) {
-                        delay(30L)
-                    }
-                }
-                true
-            } ?: false
-        }
+        val ready = runBlocking(Dispatchers.IO) { ByeDPI.waitForListening(port) }
         if (ready) {
             Log.i("Guise", "ByeDPI listening on 127.0.0.1:$port")
         } else {

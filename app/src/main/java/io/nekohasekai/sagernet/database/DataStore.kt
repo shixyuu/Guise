@@ -22,6 +22,7 @@
 package io.nekohasekai.sagernet.database
 
 import io.nekohasekai.sagernet.byedpi.ByeDPI
+import io.nekohasekai.sagernet.byedpi.ByeDPIProbe
 import android.content.Intent
 import android.os.Binder
 import android.os.Build
@@ -197,6 +198,13 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var byedpiMode by configurationStore.stringToInt(Key.BYEDPI_MODE) { ByeDPI.Mode.ALL_DIRECT }
     var byedpiDomains by configurationStore.string(Key.BYEDPI_DOMAINS)
     var byedpiArgs by configurationStore.stringNotBlack(Key.BYEDPI_ARGS) { ByeDPI.DEFAULT_ARGS }
+    var byedpiProbeSites by configurationStore.stringNotBlack(Key.BYEDPI_PROBE_SITES) { ByeDPIProbe.DEFAULT_SITES }
+    var byedpiProbeRequests by configurationStore.int(Key.BYEDPI_PROBE_REQUESTS) { ByeDPIProbe.DEFAULT_REQUESTS }
+    var byedpiProbeTimeout by configurationStore.int(Key.BYEDPI_PROBE_TIMEOUT) { ByeDPIProbe.DEFAULT_TIMEOUT_SECONDS }
+    var byedpiProbeConcurrency by configurationStore.int(Key.BYEDPI_PROBE_CONCURRENCY) { ByeDPIProbe.DEFAULT_CONCURRENCY }
+    var byedpiProbeSni by configurationStore.stringNotBlack(Key.BYEDPI_PROBE_SNI) { ByeDPIProbe.DEFAULT_SNI }
+    /** empty = bundled list (assets/byedpi/strategies.list) */
+    var byedpiProbeStrategies by configurationStore.string(Key.BYEDPI_PROBE_STRATEGIES)
     var enableFragmentForDirect by configurationStore.boolean(Key.ENABLE_FRAGMENT_FOR_DIRECT)
     var fragmentMethod by configurationStore.stringToInt(Key.FRAGMENT_METHOD)
     var realityDisableX25519Mlkem768 by configurationStore.boolean(Key.REALITY_DISABLE_X25519MLKEM768)

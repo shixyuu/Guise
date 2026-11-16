@@ -304,6 +304,11 @@
             app:key="byedpiCreateProfile"
             app:summary="@string/byedpi_create_profile_sum"
             app:title="@string/byedpi_create_profile" />
+        <Preference
+            app:icon="@drawable/ic_baseline_speed_24"
+            app:key="byedpiProbe"
+            app:summary="@string/byedpi_probe_sum"
+            app:title="@string/byedpi_probe" />
     </PreferenceCategory>
 
     <PreferenceCategory app:title="@string/cag_dns">

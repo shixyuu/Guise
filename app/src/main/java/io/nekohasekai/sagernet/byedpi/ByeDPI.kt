@@ -138,6 +138,23 @@ object ByeDPI {
         }
     }
 
+    /** Poll until something accepts TCP connections on 127.0.0.1:[port]. */
+    suspend fun waitForListening(port: Int, timeoutMillis: Long = 1500L): Boolean {
+        return kotlinx.coroutines.withTimeoutOrNull(timeoutMillis) {
+            while (true) {
+                try {
+                    java.net.Socket().use {
+                        it.connect(java.net.InetSocketAddress("127.0.0.1", port), 100)
+                    }
+                    break
+                } catch (_: java.io.IOException) {
+                    kotlinx.coroutines.delay(30L)
+                }
+            }
+            true
+        } ?: false
+    }
+
     /** Parse the user domain list (one per line or comma separated, '#' comments). */
     fun parseDomains(text: String): List<String> {
         return text.split('\n', ',')

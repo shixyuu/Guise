@@ -251,6 +251,11 @@
             android:taskAffinity="io.nekohasekai.sagernet.ui.StunActivity"
             android:parentActivityName="io.nekohasekai.sagernet.ui.MainActivity" />
         <activity
+            android:name="io.nekohasekai.sagernet.ui.ByeDPIProbeActivity"
+            android:launchMode="singleTask"
+            android:taskAffinity="io.nekohasekai.sagernet.ui.ByeDPIProbeActivity"
+            android:parentActivityName="io.nekohasekai.sagernet.ui.MainActivity" />
+        <activity
             android:name="io.nekohasekai.sagernet.ui.ProbeCertActivity"
             android:launchMode="singleTask"
             android:taskAffinity="io.nekohasekai.sagernet.ui.ProbeCertActivity"
