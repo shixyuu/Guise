@@ -401,6 +401,11 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         byedpiDomains.setOnBindEditTextListener(EditTextPreferenceModifiers.Hosts)
         byedpiDomains.onPreferenceChangeListener = reloadListener
         byedpiArgs.onPreferenceChangeListener = reloadListener
+        findPreference<EditTextPreference>(Key.BYEDPI_DNS)!!.apply {
+            setOnBindEditTextListener(EditTextPreferenceModifiers.Hosts)
+            onPreferenceChangeListener = reloadListener
+        }
+        findPreference<SwitchPreference>(Key.BYEDPI_DNS_VIA_BYEDPI)!!.onPreferenceChangeListener = reloadListener
         findPreference<Preference>(Key.BYEDPI_PROBE)!!.setOnPreferenceClickListener {
             startActivity(android.content.Intent(requireContext(), ByeDPIProbeActivity::class.java))
             true

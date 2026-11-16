@@ -38,7 +38,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.Inet4Address
@@ -46,9 +45,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.Socket
-import java.net.URI
 import java.net.URL
-import java.net.URLEncoder
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLSocket
@@ -59,9 +56,10 @@ import kotlin.coroutines.coroutineContext
 /**
  * Guise: runs the ByeDPI connectivity test in the UI process.
  *
- * Host names are resolved once up front, by default over DNS-over-HTTPS to IP-literal resolvers,
- * because in mainland China the sites worth testing are usually DNS-poisoned as well; a poisoned
- * answer would make every strategy fail. Each request then goes to that IP — directly for the
+ * Host names are resolved once up front with "DNS for ByeDPI" (DoH, through a ByeDPI with the
+ * current arguments when "Send DNS through ByeDPI" is on) — the same servers and route the core
+ * uses for ByeDPI traffic — because in mainland China the sites worth testing are usually
+ * DNS-poisoned as well; a poisoned answer would make every strategy fail. Each request then goes to that IP — directly for the
  * baseline row, or through a throw-away byedpi (SOCKS5 on 127.0.0.1:<free port>) per strategy —
  * with TLS SNI and certificate check on the real host name, so byedpi sees the ClientHello it
  * has to disguise. The pass/fail rule follows romanvht/ByeByeDPI utility/SiteCheckUtils.kt
@@ -116,11 +114,20 @@ class ByeDPIProbeRunner(
     private suspend fun resolveAll(network: Network?): Resolution = coroutineScope {
         val hosts = targets.flatMap { it.hosts }.distinct()
         var viaDoh = useDoh
-        val results = hosts.map { host ->
-            async {
-                host to (if (useDoh) resolveDoh(host, network) else null)
-            }
-        }.awaitAll().toMap().toMutableMap()
+        val dohServers = ByeDPI.parseDnsServers(DataStore.byedpiDns).filter { it.startsWith("https://") }
+        val dnsByeDPI = if (useDoh && dohServers.isNotEmpty() && DataStore.byedpiDnsViaByedpi) {
+            runCatching { startByeDPI(DataStore.byedpiArgs) }.getOrNull()
+        } else null
+        val dnsProxy = dnsByeDPI?.let { Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", it.second)) }
+        val results = try {
+            hosts.map { host ->
+                async {
+                    host to (if (useDoh) resolveDoh(host, dohServers, dnsProxy, network) else null)
+                }
+            }.awaitAll().toMap().toMutableMap()
+        } finally {
+            dnsByeDPI?.first?.destroy()
+        }
         if (useDoh && results.values.all { it == null }) viaDoh = false // DoH unreachable
         for ((host, address) in results) {
             if (address == null) results[host] = resolveSystem(host, network)
@@ -138,32 +145,50 @@ class ByeDPIProbeRunner(
         null
     }
 
-    private fun resolveDoh(host: String, network: Network?): InetAddress? {
-        for (endpoint in DOH_ENDPOINTS) {
+    /** RFC 8484 GET to each "DNS for ByeDPI" https server in turn; well-known hosts are pinned. */
+    private fun resolveDoh(host: String, servers: List<String>, proxy: Proxy?, network: Network?): InetAddress? {
+        val query = android.util.Base64.encodeToString(
+            ByeDPIProbe.buildDnsQuery(host),
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+        )
+        for (server in servers) {
             try {
-                val url = URL(endpoint + "?name=" + URLEncoder.encode(host, "UTF-8") + "&type=A")
-                val conn = (network?.openConnection(url) ?: url.openConnection()) as HttpsURLConnection
-                conn.connectTimeout = 3000
-                conn.readTimeout = 3000
-                conn.setRequestProperty("Accept", "application/dns-json")
-                try {
-                    if (conn.responseCode != 200) continue
-                    val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-                    val answers = json.optJSONArray("Answer") ?: continue
-                    for (i in 0 until answers.length()) {
-                        val answer = answers.getJSONObject(i)
-                        if (answer.optInt("type") == 1) {
-                            return InetAddress.getByName(answer.getString("data"))
-                        }
-                    }
-                } finally {
-                    conn.disconnect()
-                }
+                val serverHost = ByeDPI.dnsServerHost(server) ?: continue
+                val pinned = ByeDPI.KNOWN_DOH_HOSTS[serverHost.lowercase()]?.firstOrNull()
+                val url = URL(server + (if (server.contains('?')) "&" else "?") + "dns=" + query)
+                val answer = if (pinned != null) {
+                    // keep SNI/certificate on the name, connect to the pinned IP
+                    requestBytes(url, InetAddress.getByName(pinned), proxy, network)
+                } else {
+                    requestBytes(url, null, proxy, network)
+                } ?: continue
+                val ip = ByeDPIProbe.parseDnsA(answer).firstOrNull() ?: continue
+                return InetAddress.getByName(ip)
             } catch (e: Exception) {
-                Log.d("libbyedpi", "probe: DoH $endpoint failed for $host: ${e.message}")
+                Log.d("libbyedpi", "probe: DoH $server failed for $host: ${e.message}")
             }
         }
         return null
+    }
+
+    private fun requestBytes(url: URL, address: InetAddress?, proxy: Proxy?, network: Network?): ByteArray? {
+        if (address == null) {
+            val conn = (when {
+                proxy != null -> url.openConnection(proxy)
+                network != null -> network.openConnection(url)
+                else -> url.openConnection()
+            }) as HttpsURLConnection
+            conn.connectTimeout = 4000
+            conn.readTimeout = 4000
+            conn.setRequestProperty("Accept", "application/dns-message")
+            try {
+                if (conn.responseCode != 200) return null
+                return conn.inputStream.use { it.readBytes() }
+            } finally {
+                conn.disconnect()
+            }
+        }
+        return exchange(url, address, proxy, network, "application/dns-message", 4000)?.second
     }
 
     // ---- strategies ----
@@ -201,10 +226,20 @@ class ByeDPIProbeRunner(
     }
 
     private suspend fun runStrategy(row: ByeDPIProbe.Result) {
+        val (process, port) = startByeDPI(row.args ?: "")
+        try {
+            checkTargets(row, Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", port)), null)
+        } finally {
+            process.destroy()
+        }
+    }
+
+    /** Start a throw-away byedpi and wait until it listens; the caller destroys the process. */
+    private suspend fun startByeDPI(args: String): Pair<Process, Int> {
         val executable = File(SagerNet.application.applicationInfo.nativeLibraryDir, ByeDPI.EXECUTABLE)
         check(executable.canExecute()) { "ByeDPI executable not found" }
         val port = mkPort()
-        val cmd = ByeDPI.buildCommand(executable.absolutePath, port, row.args ?: "", protectPath)
+        val cmd = ByeDPI.buildCommand(executable.absolutePath, port, args, protectPath)
         val process = ProcessBuilder(cmd)
             .directory(SagerNet.deviceStorage.noBackupFilesDir)
             .redirectErrorStream(true)
@@ -231,10 +266,11 @@ class ByeDPIProbeRunner(
                     else "byedpi did not start"
                 )
             }
-            checkTargets(row, Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", port)), null)
-        } finally {
+        } catch (e: Exception) {
             process.destroy()
+            throw e
         }
+        return process to port
     }
 
     private suspend fun checkTargets(row: ByeDPIProbe.Result, proxy: Proxy?, network: Network?) = coroutineScope {
@@ -251,18 +287,30 @@ class ByeDPIProbeRunner(
 
     /** @return latency in ms when the site answered with a complete response, null otherwise. */
     private fun checkOnce(url: String, proxy: Proxy?, network: Network?): Long? {
-        val uri = try {
-            URI(url)
+        val parsed = try {
+            URL(url)
         } catch (_: Exception) {
             return null
         }
-        val host = uri.host ?: return null
-        val address = addresses[host.lowercase()] ?: return null
-        val https = uri.scheme.equals("https", true)
-        val port = if (uri.port > 0) uri.port else if (https) 443 else 80
-        val path = (uri.rawPath ?: "").ifEmpty { "/" } + (uri.rawQuery?.let { "?$it" } ?: "")
-        val timeout = timeoutSeconds * 1000
+        val address = addresses[parsed.host.lowercase()] ?: return null
         val start = System.nanoTime()
+        val result = exchange(parsed, address, proxy, network, "*/*", timeoutSeconds * 1000, bodyNeeded = false)
+        return if (result != null) (System.nanoTime() - start) / 1_000_000 else null
+    }
+
+    /**
+     * One HTTP/1.1 GET to [address] (directly, bound to [network], or through the SOCKS [proxy])
+     * with TLS SNI and certificate check on the URL's host name.
+     * @return status code and (if [bodyNeeded]) body, or null if the exchange broke.
+     */
+    private fun exchange(
+        url: URL, address: InetAddress, proxy: Proxy?, network: Network?, accept: String, timeout: Int,
+        bodyNeeded: Boolean = true,
+    ): Pair<Int, ByteArray?>? {
+        val host = url.host
+        val https = url.protocol.equals("https", true)
+        val port = if (url.port > 0) url.port else if (https) 443 else 80
+        val path = url.file.ifEmpty { "/" }
         var raw: Socket? = null
         try {
             raw = if (proxy != null) Socket(proxy) else Socket()
@@ -277,7 +325,7 @@ class ByeDPIProbeRunner(
                 }
                 ssl.startHandshake()
                 if (!HttpsURLConnection.getDefaultHostnameVerifier().verify(host, ssl.session)) {
-                    Log.d("libbyedpi", "probe: certificate mismatch for $host via $proxy")
+                    Log.d("libbyedpi", "probe: certificate mismatch for $host via ${proxy ?: "direct"}")
                     return null
                 }
                 ssl
@@ -285,17 +333,18 @@ class ByeDPIProbeRunner(
             socket.getOutputStream().apply {
                 write(
                     ("GET $path HTTP/1.1\r\nHost: $host\r\nUser-Agent: $USER_AGENT\r\n" +
-                            "Accept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n")
+                            "Accept: $accept\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n")
                         .toByteArray()
                 )
                 flush()
             }
-            val code = ByeDPIProbe.readResponse(socket.getInputStream())
+            val body = if (bodyNeeded) java.io.ByteArrayOutputStream() else null
+            val code = ByeDPIProbe.readResponse(socket.getInputStream(), sink = body)
             if (code == null) {
-                Log.d("libbyedpi", "probe: broken response from $url via $proxy")
+                Log.d("libbyedpi", "probe: broken response from $url via ${proxy ?: "direct"}")
                 return null
             }
-            return (System.nanoTime() - start) / 1_000_000
+            return code to body?.toByteArray()
         } catch (e: Exception) {
             Log.d("libbyedpi", "probe: $url via ${proxy ?: "direct"} failed: ${e.message}")
             return null
@@ -308,12 +357,6 @@ class ByeDPIProbeRunner(
     }
 
     companion object {
-        /** IP-literal DoH JSON endpoints, so the lookup itself needs no (poisonable) DNS. */
-        val DOH_ENDPOINTS = listOf(
-            "https://1.1.1.1/dns-query",
-            "https://1.0.0.1/dns-query",
-            "https://8.8.8.8/resolve",
-        )
         const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36"
     }

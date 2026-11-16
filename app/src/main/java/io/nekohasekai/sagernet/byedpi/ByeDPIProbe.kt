@@ -62,7 +62,11 @@ object ByeDPIProbe {
      * read. A DPI box that kills the connection mid-way therefore counts as a failure.
      * @return the status code, or null on a broken/truncated response.
      */
-    fun readResponse(input: java.io.InputStream, limit: Long = 1024L * 1024): Int? {
+    fun readResponse(
+        input: java.io.InputStream,
+        limit: Long = 1024L * 1024,
+        sink: java.io.OutputStream? = null,
+    ): Int? {
         val stream = java.io.BufferedInputStream(input)
         val statusLine = readLine(stream) ?: return null
         val parts = statusLine.split(' ')
@@ -89,7 +93,26 @@ object ByeDPIProbe {
             while (got < want) {
                 val n = stream.read(buffer, 0, minOf(buffer.size.toLong(), want - got).toInt())
                 if (n < 0) return null
+                sink?.write(buffer, 0, n)
                 got += n
+            }
+            return code
+        }
+        if (chunked) {
+            var total = 0L
+            while (total < limit) {
+                val sizeLine = readLine(stream) ?: return null
+                val size = sizeLine.substringBefore(';').trim().toLongOrNull(16) ?: return null
+                if (size == 0L) return code
+                var left = size
+                while (left > 0) {
+                    val n = stream.read(buffer, 0, minOf(buffer.size.toLong(), left).toInt())
+                    if (n < 0) return null
+                    sink?.write(buffer, 0, n)
+                    left -= n
+                }
+                total += size
+                readLine(stream) ?: return null // CRLF after the chunk
             }
             return code
         }
@@ -97,9 +120,65 @@ object ByeDPIProbe {
         while (total < limit) {
             val n = stream.read(buffer)
             if (n < 0) break
+            sink?.write(buffer, 0, n)
             total += n
         }
         return code
+    }
+
+    /** RFC 1035 query for the A record of [host] (RFC 8484 recommends id 0 for DoH). */
+    fun buildDnsQuery(host: String, id: Int = 0): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        out.write(id shr 8 and 0xff); out.write(id and 0xff)
+        out.write(0x01); out.write(0x00) // RD
+        out.write(0); out.write(1) // QDCOUNT
+        repeat(6) { out.write(0) } // AN/NS/AR
+        host.trimEnd('.').split('.').forEach { label ->
+            val bytes = label.toByteArray(Charsets.US_ASCII)
+            require(bytes.size in 1..63) { "bad label in $host" }
+            out.write(bytes.size); out.write(bytes)
+        }
+        out.write(0)
+        out.write(0); out.write(1) // QTYPE A
+        out.write(0); out.write(1) // QCLASS IN
+        return out.toByteArray()
+    }
+
+    /** IPv4 addresses from the answer section of a DNS response (empty on error/NXDOMAIN). */
+    fun parseDnsA(message: ByteArray): List<String> {
+        fun u16(i: Int) = (message[i].toInt() and 0xff shl 8) or (message[i + 1].toInt() and 0xff)
+        fun skipName(start: Int): Int {
+            var i = start
+            while (true) {
+                val len = message[i].toInt() and 0xff
+                when {
+                    len == 0 -> return i + 1
+                    len and 0xc0 == 0xc0 -> return i + 2
+                    else -> i += len + 1
+                }
+            }
+        }
+        return try {
+            if (message.size < 12 || u16(2) and 0x000f != 0) return emptyList() // RCODE
+            val qd = u16(4)
+            val an = u16(6)
+            var i = 12
+            repeat(qd) { i = skipName(i) + 4 }
+            val result = mutableListOf<String>()
+            repeat(an) {
+                i = skipName(i)
+                val type = u16(i)
+                val rdLength = u16(i + 8)
+                val data = i + 10
+                if (type == 1 && rdLength == 4) {
+                    result.add((0 until 4).joinToString(".") { (message[data + it].toInt() and 0xff).toString() })
+                }
+                i = data + rdLength
+            }
+            result
+        } catch (_: IndexOutOfBoundsException) {
+            emptyList()
+        }
     }
 
     private fun readLine(stream: java.io.InputStream): String? {

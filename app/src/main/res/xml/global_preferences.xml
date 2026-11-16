@@ -299,6 +299,18 @@
             app:key="byedpiArgs"
             app:title="@string/byedpi_args"
             app:useSimpleSummaryProvider="true" />
+        <io.nekohasekai.sagernet.widget.NonBlackEditTextPreference
+            app:dialogMessage="@string/byedpi_dns_message"
+            app:icon="@drawable/ic_action_dns"
+            app:key="byedpiDns"
+            app:title="@string/byedpi_dns"
+            app:useSimpleSummaryProvider="true" />
+        <SwitchPreference
+            app:defaultValue="true"
+            app:icon="@drawable/ic_action_dns"
+            app:key="byedpiDnsViaByedpi"
+            app:summary="@string/byedpi_dns_via_byedpi_sum"
+            app:title="@string/byedpi_dns_via_byedpi" />
         <Preference
             app:icon="@drawable/ic_action_note_add"
             app:key="byedpiCreateProfile"

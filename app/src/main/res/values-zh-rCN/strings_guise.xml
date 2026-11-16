@@ -53,11 +53,15 @@
     <string name="byedpi_probe_tag_ip_blocked">国内通常被封 IP，ByeDPI 基本无效</string>
     <string name="byedpi_probe_tag_control">通常未被封锁（对照）</string>
     <string name="byedpi_probe_tag_custom">自定义</string>
-    <string name="byedpi_probe_doh">用 DoH 解析（1.1.1.1 / 8.8.8.8）</string>
-    <string name="byedpi_probe_doh_sum">被封网站通常也有 DNS 污染。开启后测试会通过 DNS-over-HTTPS 获取真实地址（DoH 不通时改用系统 DNS）；实际使用时以 Guise 中配置的 DNS 为准。</string>
+    <string name="byedpi_probe_doh">用「ByeDPI 专用 DNS」解析</string>
+    <string name="byedpi_probe_doh_sum">被封网站通常也有 DNS 污染。开启后测试会用 Guise 给 ByeDPI 流量使用的同一组 DoH 服务器（及相同线路）解析目标，失败时改用系统 DNS。</string>
     <string name="byedpi_probe_dns_resolving">正在解析目标…</string>
     <string name="byedpi_probe_dns_doh">DoH</string>
     <string name="byedpi_probe_dns_system">系统 DNS</string>
     <string name="byedpi_probe_dns_ok">DNS（%1$s）：已解析 %2$d 个域名</string>
     <string name="byedpi_probe_dns_failed">DNS（%1$s）：已解析 %2$d 个，失败：%3$s</string>
+    <string name="byedpi_dns">ByeDPI 专用 DNS</string>
+    <string name="byedpi_dns_message">走 ByeDPI 的域名（ByeDPI 无服务器配置、「指定域名」模式，以及路由模式为直连时的「全部直连流量」）改用这里的加密 DNS 解析，避免被污染成假地址。每行一个，建议用 IP 形式的 DoH，例如 https://1.1.1.1/dns-query</string>
+    <string name="byedpi_dns_via_byedpi">ByeDPI 专用 DNS 经过 ByeDPI</string>
+    <string name="byedpi_dns_via_byedpi_sum">上面的 DoH 查询也经过 ByeDPI 发出（DoH 服务器本身被干扰时有用）。关闭则直接连接</string>
 </resources>

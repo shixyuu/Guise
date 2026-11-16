@@ -128,6 +128,8 @@ object Key {
     const val BYEDPI_DOMAINS = "byedpiDomains"
     const val BYEDPI_ARGS = "byedpiArgs"
     const val BYEDPI_CREATE_PROFILE = "byedpiCreateProfile"
+    const val BYEDPI_DNS = "byedpiDns"
+    const val BYEDPI_DNS_VIA_BYEDPI = "byedpiDnsViaByedpi"
     const val BYEDPI_PROBE = "byedpiProbe"
     const val BYEDPI_PROBE_TARGETS = "byedpiProbeTargets"
     const val BYEDPI_PROBE_CUSTOM = "byedpiProbeCustom"

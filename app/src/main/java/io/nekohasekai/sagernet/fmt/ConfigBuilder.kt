@@ -284,7 +284,27 @@ fun buildV2RayConfig(
 
     var directDNS = DataStore.directDns.listByLineOrComma().filter { !it.startsWith("#") }
     if (DataStore.useLocalDnsAsDirectDns) directDNS = listOf("localhost")
-    val remoteDNS = if (routeMode == RouteMode.DIRECT) {
+
+    // Guise: DNS for ByeDPI. Sites worth sending through ByeDPI are usually DNS-poisoned too, so
+    // names that end up at ByeDPI must be resolved by encrypted DNS ("DNS for ByeDPI", DoH by
+    // default) rather than the system/direct resolver. Cases:
+    //  - ByeDPI-only profile as the main outbound: it replaces the remote DNS;
+    //  - global ByeDPI "all direct traffic" + route mode "direct": it replaces the (direct) DNS;
+    //  - global ByeDPI "selected domains": dedicated servers for those domains (added below).
+    val byedpiIsMain = byedpiProfileInUse && proxies.size == 1 &&
+            (proxies[0].requireBean() as? SOCKSBean)?.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
+    val byedpiDnsPlan = ByeDPI.dnsPlan(
+        DataStore.byedpiDns, byedpiPort > 0, byedpiIsMain, byedpiGlobal, DataStore.byedpiMode,
+        DataStore.byedpiDomains, routeMode == RouteMode.DIRECT, forTest,
+    )
+    val byedpiDnsServers = if (byedpiDnsPlan.active) byedpiDnsPlan.servers else emptyList()
+    val byedpiReplacesRemoteDns = byedpiDnsPlan.active && byedpiDnsPlan.replaceRemoteDns
+    val byedpiDnsDomains = byedpiDnsPlan.domains
+    var hasDnsTagByedpi = false
+
+    val remoteDNS = if (byedpiReplacesRemoteDns) {
+        byedpiDnsServers
+    } else if (routeMode == RouteMode.DIRECT) {
         directDNS
     } else {
         DataStore.remoteDns.listByLineOrComma().filter { !it.startsWith("#") }
@@ -338,6 +358,18 @@ fun buildV2RayConfig(
             }
             servers = mutableListOf()
             fallbackStrategy = "disabledIfAnyMatch"
+
+            // Guise: pin well-known DoH host names used by "DNS for ByeDPI"
+            byedpiDnsServers.mapNotNull { ByeDPI.dnsServerHost(it) }.distinct().forEach { host ->
+                val ips = ByeDPI.KNOWN_DOH_HOSTS[host.lowercase()] ?: return@forEach
+                if (hosts == null) hosts = mutableMapOf()
+                if (!hosts.containsKey(host)) {
+                    hosts[host] = DnsObject.StringOrListObject().apply {
+                        valueX = null
+                        valueY = ips
+                    }
+                }
+            }
         }
 
         log = LogObject().apply {
@@ -2098,6 +2130,12 @@ fun buildV2RayConfig(
                         currentOutbound.dialDomainStrategy = DataStore.outboundDomainStrategyForServer
                     }
 
+                    if (bean is SOCKSBean && bean.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS && byedpiPort > 0) {
+                        // Guise: hand ByeDPI IPs resolved by the core (DNS for ByeDPI), not domains
+                        currentOutbound.domainStrategy = ByeDPI.OUTBOUND_DOMAIN_STRATEGY
+                        currentOutbound.dialDomainStrategy = null
+                    }
+
                     if (bean is ConfigBean && bean.type == "v2ray_outbound") {
                         currentOutbound = gson.fromJson(bean.content, OutboundObject::class.java).apply { init() }
                     }
@@ -2553,11 +2591,13 @@ fun buildV2RayConfig(
             }
         })
 
-        if (byedpiGlobal) {
-            // Guise: ByeDPI local SOCKS5 server (process started by V2RayInstance.launch)
+        if (byedpiPort > 0) {
+            // Guise: ByeDPI local SOCKS5 server (process started by V2RayInstance.launch).
+            // Also present for the ByeDPI-only profile, as the route for "DNS for ByeDPI".
             outbounds.add(OutboundObject().apply {
                 tag = ByeDPI.TAG_BYEDPI
                 protocol = "socks"
+                domainStrategy = ByeDPI.OUTBOUND_DOMAIN_STRATEGY
                 settings = LazyOutboundConfigurationObject(this,
                     SocksOutboundConfigurationObject().apply {
                         servers = listOf(SocksOutboundConfigurationObject.ServerObject().apply {
@@ -2752,6 +2792,15 @@ fun buildV2RayConfig(
             } catch (_: Exception) {}
         }
 
+        // Guise: DoH host names of "DNS for ByeDPI" that are not pinned in hosts
+        byedpiDnsServers.forEach {
+            val host = ByeDPI.dnsServerHost(it) ?: return@forEach
+            if (it.contains("://") && !Libexclavecore.isIP(host) && host.lowercase() !in ByeDPI.KNOWN_DOH_HOSTS &&
+                host.lowercase() != "localhost") {
+                bypassDomainSkipFakeDns.add("full:$host")
+            }
+        }
+
         directDNS.forEach {
             try {
                 if (it.lowercase() != "localhost" && it.lowercase() != "fakedns") {
@@ -2775,6 +2824,11 @@ fun buildV2RayConfig(
                         address = it
                         domains = proxyDomain.toList() // v2fly/v2ray-core#1558, v2fly/v2ray-core#1855
                         queryStrategy = remoteDnsQueryStrategy
+                        if (byedpiReplacesRemoteDns) {
+                            tag = ByeDPI.TAG_DNS_BYEDPI
+                            hasDnsTagByedpi = true
+                            queryStrategy = ByeDPI.DNS_QUERY_STRATEGY
+                        }
                         if (DataStore.ednsClientIp.isNotEmpty()) {
                             clientIp = DataStore.ednsClientIp
                         }
@@ -2875,6 +2929,11 @@ fun buildV2RayConfig(
                     valueY = DnsObject.ServerObject().apply {
                         address = it
                         queryStrategy = remoteDnsQueryStrategy
+                        if (byedpiReplacesRemoteDns) {
+                            tag = ByeDPI.TAG_DNS_BYEDPI
+                            hasDnsTagByedpi = true
+                            queryStrategy = ByeDPI.DNS_QUERY_STRATEGY
+                        }
                         if (DataStore.ednsClientIp.isNotEmpty()) {
                             clientIp = DataStore.ednsClientIp
                         }
@@ -2900,6 +2959,31 @@ fun buildV2RayConfig(
                     }
                 }
             })
+        }
+
+        if (byedpiDnsDomains.isNotEmpty() && byedpiDnsServers.isNotEmpty()) {
+            // Guise: "selected domains" mode -> resolve those domains with DNS for ByeDPI.
+            // Put first so they win over geosite-based remote/direct server matches.
+            dns.servers.addAll(0, byedpiDnsServers.map {
+                DnsObject.StringOrServerObject().apply {
+                    valueY = DnsObject.ServerObject().apply {
+                        address = it
+                        domains = byedpiDnsDomains
+                        queryStrategy = ByeDPI.DNS_QUERY_STRATEGY
+                        tag = ByeDPI.TAG_DNS_BYEDPI
+                        if (useFakeDns) {
+                            fakedns = mutableListOf(DnsObject.ServerObject.StringOrFakeDnsObject().apply {
+                                valueY = FakeDnsObject().apply {
+                                    ipPool = "${VpnService.FAKEDNS_VLAN4_CLIENT}/${VpnService.FAKEDNS_VLAN4_CLIENT_PREFIX}"
+                                    poolSize = VpnService.FAKEDNS_VLAN4_CLIENT_POOL_SIZE
+                                }
+                            })
+                        }
+                        fallbackStrategy = "disabled"
+                    }
+                }
+            })
+            hasDnsTagByedpi = true
         }
 
         if (routeMode == RouteMode.DIRECT) {
@@ -2935,6 +3019,15 @@ fun buildV2RayConfig(
                     }
                 }
             }
+        }
+
+        if (hasDnsTagByedpi) {
+            // Guise: DoH queries of "DNS for ByeDPI" go through ByeDPI (or direct, if disabled)
+            routing.rules.add(0, RoutingObject.RuleObject().apply {
+                type = "field"
+                inboundTag = listOf(ByeDPI.TAG_DNS_BYEDPI)
+                outboundTag = if (DataStore.byedpiDnsViaByedpi) ByeDPI.TAG_BYEDPI else TAG_BYPASS
+            })
         }
 
         if (hasDnsTagDirect) {

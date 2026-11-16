@@ -54,11 +54,15 @@
     <string name="byedpi_probe_tag_ip_blocked">Usually IP-blocked in CN: desync rarely helps</string>
     <string name="byedpi_probe_tag_control">Normally not blocked (reference)</string>
     <string name="byedpi_probe_tag_custom">Custom</string>
-    <string name="byedpi_probe_doh">Resolve with DoH (1.1.1.1 / 8.8.8.8)</string>
-    <string name="byedpi_probe_doh_sum">Blocked sites are usually DNS-poisoned too. With this on, the test looks up real addresses over DNS-over-HTTPS (falls back to system DNS if DoH is unreachable); the actual app uses the DNS configured in Guise.</string>
+    <string name="byedpi_probe_doh">Resolve with \"DNS for ByeDPI\"</string>
+    <string name="byedpi_probe_doh_sum">Blocked sites are usually DNS-poisoned too. With this on, the test resolves targets with the same DoH servers (and route) that Guise uses for ByeDPI traffic, falling back to system DNS if they fail.</string>
     <string name="byedpi_probe_dns_resolving">Resolving targets…</string>
     <string name="byedpi_probe_dns_doh">DoH</string>
     <string name="byedpi_probe_dns_system">system DNS</string>
     <string name="byedpi_probe_dns_ok">DNS (%1$s): %2$d hosts resolved</string>
     <string name="byedpi_probe_dns_failed">DNS (%1$s): %2$d resolved, failed: %3$s</string>
+    <string name="byedpi_dns">DNS for ByeDPI</string>
+    <string name="byedpi_dns_message">Encrypted DNS used for names that go through ByeDPI (ByeDPI-only profile, \"selected domains\", and \"all direct traffic\" with route mode Direct), so blocked sites resolve to real addresses instead of poisoned ones. One per line. Prefer DoH to IP addresses, e.g. https://1.1.1.1/dns-query</string>
+    <string name="byedpi_dns_via_byedpi">Send ByeDPI DNS through ByeDPI</string>
+    <string name="byedpi_dns_via_byedpi_sum">Route the DoH queries above through ByeDPI (helps when the DoH server itself is filtered). Off: connect directly</string>
 </resources>

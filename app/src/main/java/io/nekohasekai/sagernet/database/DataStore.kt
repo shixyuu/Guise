@@ -199,6 +199,8 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var byedpiMode by configurationStore.stringToInt(Key.BYEDPI_MODE) { ByeDPI.Mode.ALL_DIRECT }
     var byedpiDomains by configurationStore.string(Key.BYEDPI_DOMAINS)
     var byedpiArgs by configurationStore.stringNotBlack(Key.BYEDPI_ARGS) { ByeDPI.DEFAULT_ARGS }
+    var byedpiDns by configurationStore.stringNotBlack(Key.BYEDPI_DNS) { ByeDPI.DEFAULT_DNS }
+    var byedpiDnsViaByedpi by configurationStore.boolean(Key.BYEDPI_DNS_VIA_BYEDPI) { true }
     /** comma separated target ids (presets and "custom:<url>") */
     var byedpiProbeTargets by configurationStore.stringNotBlack(Key.BYEDPI_PROBE_TARGETS) { ByeDPIProbeTargets.DEFAULT_SELECTION }
     var byedpiProbeCustom by configurationStore.string(Key.BYEDPI_PROBE_CUSTOM)

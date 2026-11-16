@@ -70,6 +70,88 @@ object ByeDPI {
         return if (trimmed.isEmpty() || trimmed == LEGACY_DEFAULT_ARGS) DEFAULT_ARGS else trimmed
     }
 
+    /** Tag of the DNS servers that resolve names for ByeDPI traffic ("DNS for ByeDPI"). */
+    const val TAG_DNS_BYEDPI = "dns-byedpi"
+
+    /**
+     * Default "DNS for ByeDPI": DoH to IP literals, so no (poisonable) bootstrap lookup is
+     * needed. Both endpoints answer RFC 8484 wire-format queries on /dns-query.
+     */
+    const val DEFAULT_DNS = "https://1.1.1.1/dns-query\nhttps://8.8.8.8/dns-query"
+
+    /** Well-known DoH host names, pinned so they are not looked up through polluted DNS. */
+    val KNOWN_DOH_HOSTS = mapOf(
+        "cloudflare-dns.com" to listOf("1.1.1.1", "1.0.0.1"),
+        "one.one.one.one" to listOf("1.1.1.1", "1.0.0.1"),
+        "dns.google" to listOf("8.8.8.8", "8.8.4.4"),
+        "dns.quad9.net" to listOf("9.9.9.9", "149.112.112.112"),
+    )
+
+    /**
+     * ByeDPI only handles the TLS/HTTP stream; the address it connects to must already be real.
+     * Its outbound therefore resolves domains in the core ("UseIPv4", through the DNS servers
+     * above) instead of handing them to byedpi, which would use the polluted system resolver.
+     * IPv4 only: mainland IPv6 paths to these sites are less predictable, and it matches the
+     * connectivity test.
+     */
+    const val OUTBOUND_DOMAIN_STRATEGY = "UseIPv4"
+    const val DNS_QUERY_STRATEGY = "UseIPv4"
+
+    /** "DNS for ByeDPI" list: one server per line or comma separated, '#' comments allowed. */
+    fun parseDnsServers(text: String): List<String> {
+        val servers = text.lines()
+            .map { it.substringBefore('#') }
+            .flatMap { it.split(',') }
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        return servers.ifEmpty { parseDnsServers(DEFAULT_DNS) }
+    }
+
+    /** Host part of a DNS server address such as `https://dns.google/dns-query` or `tcp://1.1.1.1:53`. */
+    fun dnsServerHost(server: String): String? {
+        val rest = server.substringAfter("://", server)
+        val authority = rest.substringBefore('/').substringBefore('?')
+        if (authority.isEmpty()) return null
+        if (authority.startsWith("[")) return authority.substringAfter('[').substringBefore(']')
+        return if (authority.count { it == ':' } == 1) authority.substringBefore(':') else authority
+    }
+
+    /**
+     * Which DNS servers resolve names for ByeDPI traffic.
+     * @property replaceRemoteDns "DNS for ByeDPI" takes the place of the remote DNS servers
+     * @property domains when non-empty, extra "DNS for ByeDPI" servers just for these domains
+     */
+    data class DnsPlan(val servers: List<String>, val replaceRemoteDns: Boolean, val domains: List<String>) {
+        val active get() = servers.isNotEmpty() && (replaceRemoteDns || domains.isNotEmpty())
+    }
+
+    /**
+     * - ByeDPI-only profile as the main outbound (URL tests included): replaces the remote DNS
+     *   (unless route mode "direct" keeps the profile unused);
+     * - global ByeDPI "all direct traffic" + route mode "direct": replaces the (direct) DNS;
+     * - global ByeDPI "selected domains": dedicated servers for those domains.
+     * Global "all direct traffic" with rule-based routing keeps the direct DNS for bypassed
+     * (mostly domestic) names.
+     */
+    fun dnsPlan(
+        dnsSetting: String,
+        byedpiRunning: Boolean,
+        profileIsMain: Boolean,
+        globalEnabled: Boolean,
+        mode: Int,
+        domainsSetting: String,
+        routeModeDirect: Boolean,
+        forTest: Boolean,
+    ): DnsPlan {
+        if (!byedpiRunning) return DnsPlan(emptyList(), false, emptyList())
+        val servers = parseDnsServers(dnsSetting)
+        val replace = (profileIsMain && (forTest || !routeModeDirect)) ||
+                (globalEnabled && mode == Mode.ALL_DIRECT && routeModeDirect)
+        val domains = if (globalEnabled && mode == Mode.DOMAINS) parseDomains(domainsSetting) else emptyList()
+        return DnsPlan(servers, replace, domains)
+    }
+
     object Mode {
         /** Route all traffic that would go "direct"/bypass through ByeDPI. */
         const val ALL_DIRECT = 0

@@ -114,6 +114,41 @@ with the new arguments. If byedpi rejects the arguments it exits and the service
 - ByeDPI defeats SNI/DPI-based blocking (RU/IR/TR style). It cannot help against IP blocking (e.g. most of the GFW
   blocklist); in China it is mainly useful for SNI-filtered sites on non-blocked IPs.
 
+## DNS for ByeDPI (guise.5)
+**Problem.** byedpi only rewrites the client's TLS/HTTP stream; the address must already be real. Before guise.5:
+- ByeDPI-only profile: names were resolved by the remote DNS (default `tcp://1.1.1.1`) sent *through* byedpi as
+  plain DNS-over-TCP, which the GFW can still tamper with; and whenever the core handed a *domain* to the socks
+  outbound (fake DNS, `destinationOverride`, HTTP/SOCKS inbound clients, URL tests) byedpi resolved it with
+  `getaddrinfo`, i.e. the polluted system resolver.
+- "selected domains": the domains were resolved by whatever server matched (often direct/system DNS), so apps got
+  poisoned IPs before byedpi was even involved.
+- "all direct traffic" + route mode Direct: everything was resolved by the direct (system) DNS.
+Verified on the box with exclave-core + host byedpi (`-x2`): with a domain target byedpi logged `resolve: x.com`
+→ the system answer (the box's fake-IP 198.18.0.1, standing in for a poisoned answer).
+
+**Fix** (`ByeDPI.dnsPlan`, ConfigBuilder):
+- New settings in ByeDPI: "DNS for ByeDPI" (`byedpiDns`, default `https://1.1.1.1/dns-query` +
+  `https://8.8.8.8/dns-query`, IP literals so no bootstrap lookup; `cloudflare-dns.com`, `dns.google`,
+  `dns.quad9.net` are pinned in `dns.hosts` if used) and "Send ByeDPI DNS through ByeDPI" (`byedpiDnsViaByedpi`,
+  default on). Those servers get tag `dns-byedpi` and a routing rule `inboundTag dns-byedpi -> byedpi` (or
+  `bypass` when the switch is off). Other DoH host names are resolved via the direct DNS (skip-fakedns list).
+- ByeDPI-only profile as the main outbound (also URL tests; not with route mode Direct): "DNS for ByeDPI"
+  replaces the remote DNS servers, query strategy UseIPv4.
+- Global "selected domains": "DNS for ByeDPI" servers with `domains = <the list>` are inserted first
+  (UseIPv4, `fallbackStrategy: disabled`, fake DNS v4 pool attached when fake DNS is on).
+- Global "all direct traffic" + route mode Direct: "DNS for ByeDPI" replaces the (direct) DNS for everything.
+  With rule-based routing the bypassed (mostly domestic) names keep the direct DNS — use "selected domains" for
+  blocked foreign sites.
+- Every ByeDPI socks outbound (global `byedpi` tag, now present whenever byedpi runs, and the ByeDPI-only profile
+  outbound) has `domainStrategy: UseIPv4`: the core resolves any domain target with its internal DNS (fake DNS
+  excluded, so fake-IP mode works too) and byedpi only ever gets an IPv4 address. SNI is untouched because
+  byedpi forwards the client's own ClientHello.
+- The connectivity test resolves targets with the same servers: RFC 8484 GET (wire format) to the https entries,
+  through a temporary byedpi with the current args when the via-ByeDPI switch is on.
+Box check (exclave-core + byedpi `-x2`, config shaped like the generated one): the DoH query left via byedpi to
+1.1.1.1:443, the core logged `DOH//1.1.1.1 got answer: x.com -> [162.159.140.229]`, and byedpi received
+`addr=162.159.140.229:443`, `host: x.com` — no `resolve:` line any more.
+
 ## Connectivity test (ByeDPI probe) — implemented in guise.3
 Entry points: Settings → ByeDPI → "Connectivity test", and a card on the main screen's Network page. Both open
 `ui/ByeDPIProbeActivity`.
