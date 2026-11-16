@@ -1,36 +1,38 @@
 # Guise
 
-**Blend in, get through.** Guise 是一个安卓代理客户端，目标是在审查严格的网络里更稳地连出去：既能连你自己的代理服务器，也能在没有服务器的时候，用 ByeDPI 对付基于 SNI 的封锁。
+**Blend in, get through.** Guise is an Android proxy client built to get out of heavily censored networks reliably: it works with your own proxy servers, and when you don't have one, it can still get past SNI-based blocking with ByeDPI.
 
-*Guise is an anti-censorship Android proxy client. It is a fork of [Exclave](https://github.com/ExclaveNetwork/Exclave) (SagerNet lineage) that adds built-in ByeDPI desync, a DPI strategy prober and Wi-Fi + mobile-data connection splitting.*
+*Guise is a fork of [Exclave](https://github.com/ExclaveNetwork/Exclave) (SagerNet lineage) that adds built-in ByeDPI desync, a DPI strategy tester, and Wi-Fi + mobile data connection splitting.*
 
-> ⚠️ 目前只发布 debug 预览版，签名和包名（`io.github.guise`）都跟 Exclave 不同，可以和 Exclave 同时安装。这是独立的分支，问题请提到本仓库，不要去打扰上游。
+> ⚠️ Only debug preview builds are published for now. The signing key and package name (`io.github.guise`) differ from Exclave, so both apps can be installed side by side. This is an independent fork: please report issues here, not upstream.
 
-## Guise 加了什么
+## What Guise adds
 
-### ByeDPI 直连模式
-- 内置 [ByeDPI](https://github.com/hufrea/byedpi)，以独立进程运行，不需要服务器就能对 TLS 握手做拆分、乱序、伪造包等处理，绕过只看 SNI 的封锁。
-- 两种用法：
-  - 添加一个“仅 ByeDPI”配置，所有流量都经 ByeDPI 直接出去。
-  - 平时照常用代理节点，同时把**指定域名**或**全部直连流量**交给 ByeDPI。
-- 走 ByeDPI 的域名改用加密 DNS（默认 `https://1.1.1.1/dns-query`、`https://8.8.8.8/dns-query`）解析，避开被污染的系统 DNS。DNS 查询本身也可以选择经过 ByeDPI 发出。
-- 默认参数 `-d1 -r1+s`。没有使用 OOB，因为有些中间设备会把 OOB 字节塞进数据流，导致 TLS 握手失败。
+### ByeDPI direct mode
+- Bundles [ByeDPI](https://github.com/hufrea/byedpi), running as a separate process. Without any server, it splits, reorders or fakes parts of the TLS handshake to get past blocking that only looks at the SNI.
+- Two ways to use it:
+  - Add a "ByeDPI only" profile and send all traffic straight out through ByeDPI.
+  - Keep using your proxy servers as usual, and hand **selected domains** or **all direct traffic** to ByeDPI.
+- Domains that go through ByeDPI are resolved over encrypted DNS (by default `https://1.1.1.1/dns-query` and `https://8.8.8.8/dns-query`) instead of the poisoned system DNS. The DNS queries themselves can optionally be sent through ByeDPI too.
+- Default arguments: `-d1 -r1+s`. OOB is not used, because some middleboxes insert the OOB byte into the stream and break the TLS handshake.
 
-### 连通性测试（策略探测）
-- 对你勾选的网站批量尝试几十组 ByeDPI 参数，并以直连作为基线，按成功率和延迟排序。好用的参数可以一键应用。
-- 内置常见目标：X/Twitter、Twitch、Pixiv、Wikipedia、Reddit、Steam 社区、Internet Archive 等，并以 GitHub 作对照。
-- 测试时用 DoH 解析域名，结果不会被 DNS 污染干扰。
+### Connectivity test (strategy tester)
+- Tries dozens of ByeDPI argument sets against the sites you select, using a plain direct connection as the baseline, and ranks them by success rate and latency. A working set can be applied with one tap.
+- Built-in targets include X/Twitter, Twitch, Pixiv, Wikipedia, Reddit, Steam Community and the Internet Archive, with GitHub as a control.
+- Names are resolved over DoH during the test, so DNS poisoning doesn't skew the results.
 
-### 双网络分流（WiFi + 移动数据）
-- 开启后，连着 WiFi 也会让移动数据保持在线，新的代理连接会分配到两个网络上。
-- 只在使用远程代理（SS、VMess、VLESS、Trojan、Hysteria2 等）时分流，所以出口 IP 始终是你的服务器。使用 ByeDPI 配置时固定只走一个网络。
-- 两种分配方式：1:1 轮流；或者自动定时测两边的延迟和抖动，按结果调整比例，某条线路断了就全部切到另一条。
-- 分流以连接为单位，单个连接不会叠加带宽。包级聚合（类似 Speedify）在计划中。
+### Dual-network split (Wi-Fi + mobile data)
+- When enabled, mobile data stays up while you are on Wi-Fi, and new proxy connections are spread across both networks.
+- Splitting only happens with a remote proxy profile (SS, VMess, VLESS, Trojan, Hysteria2, …), so your exit IP is always your server. With a ByeDPI profile, traffic stays on a single network of your choice.
+- Two balancing modes:
+  - **1:1**: new connections alternate between the networks.
+  - **Auto**: weights follow the latency, jitter and retransmissions measured on the real proxy connections. No probe packets are sent. Every N KB sent on a network (default 256 KB), Guise reads the kernel's TCP statistics (`TCP_INFO`) of the busiest live connection on that network; no traffic, no sampling. A network whose connections fail or stall is taken out of rotation, all new connections go to the other one, and it is retried after 30 seconds.
+- Splitting works per connection, so a single connection doesn't get the combined bandwidth. Packet-level aggregation (Speedify-style) is planned.
 
-### 继承自 Exclave 的能力
-uTLS 指纹、REALITY、ECH、自定义验证 SNI、TLS 分片、XHTTP、Hysteria2 端口跳跃与混淆、mux padding 等抗检测手段，以及分组、订阅、路由、代理链。
+### Inherited from Exclave
+Anti-detection features such as uTLS fingerprints, REALITY, ECH, custom verification SNI, TLS fragmentation, XHTTP, Hysteria2 port hopping and obfuscation, and mux padding, plus groups, subscriptions, routing and proxy chains.
 
-支持的协议：
+Supported protocols:
 
 <details>
 
@@ -65,31 +67,31 @@ Some supported protocols:
 
 </details>
 
-## 下载
+## Download
 
-到 [Releases](https://github.com/shixyuu/Guise/releases) 下载最新版。大多数手机选 `arm64-v8a`。这些是 debug 签名的预览版，更新时直接覆盖安装即可。
+Get the latest build from [Releases](https://github.com/shixyuu/Guise/releases). Most phones need `arm64-v8a`. These are debug-signed preview builds; to update, just install the new APK over the old one.
 
-NaïveProxy 插件请从 [klzgrad/naiveproxy](https://github.com/klzgrad/naiveproxy/releases) 获取。
+Get the NaïveProxy plugin from [klzgrad/naiveproxy](https://github.com/klzgrad/naiveproxy/releases).
 
-## 从源码构建
+## Building from source
 
-- 准备 JDK 21 或 25、Go 1.27 与 gomobile、Android SDK Platform 37.2、Build-Tools 37.0.0、NDK r30。
-- 拉取子模块：`git submodule update --init library/byedpi`
-- 编译 ByeDPI：`./bin/lib/byedpi.sh`，会输出到 `app/src/main/jniLibs/<abi>/libbyedpi.so`。
-- 编译内核：需要 [libexclavecore](https://github.com/exclavenetwork/libexclavecore)，并先打上 `library/core/patches/libexclavecore-guise-dualnet.patch`（双网络分流需要），然后执行 `cd library/core && ./build.sh`。
-- 下载资源：`./gradlew :app:downloadAssets`
-- 构建：`./gradlew :app:assembleOssDebug`（debug）或 `./gradlew :app:assembleOssRelease`（release）。
-- 签名：仓库里不包含任何密钥。请用 `keytool` 生成你自己的 keystore，然后通过 `local.properties`、环境变量，或者 `GUISE_SIGNING_PROPERTIES` 指向的文件，提供 `KEYSTORE_FILE`、`KEYSTORE_PASS`、`ALIAS_NAME`、`ALIAS_PASS`。不提供时，release 包不签名。
+- Requirements: JDK 21 or 25, Go 1.27 with gomobile, Android SDK Platform 37.2, Build-Tools 37.0.0, NDK r30.
+- Fetch the submodule: `git submodule update --init library/byedpi`
+- Build ByeDPI: `./bin/lib/byedpi.sh`. The output goes to `app/src/main/jniLibs/<abi>/libbyedpi.so`.
+- Build the core: check out [libexclavecore](https://github.com/exclavenetwork/libexclavecore) and apply `library/core/patches/libexclavecore-guise-dualnet.patch` with `git am` (needed for the dual-network split and its passive measurement). Point `library/core/go.work` at your checkout (see [GUISE.md](GUISE.md)), then run `cd library/core && ./build.sh`.
+- Download assets: `./gradlew :app:downloadAssets`
+- Build: `./gradlew :app:assembleOssDebug` (debug) or `./gradlew :app:assembleOssRelease` (release).
+- Signing: the repository contains no keys. Generate your own keystore with `keytool`, then provide `KEYSTORE_FILE`, `KEYSTORE_PASS`, `ALIAS_NAME` and `ALIAS_PASS` via `local.properties`, environment variables, or a file pointed to by `GUISE_SIGNING_PROPERTIES`. Without them, release builds are left unsigned.
 
-更详细的设计说明和改动记录见 [GUISE.md](GUISE.md)。
+See [GUISE.md](GUISE.md) for design notes and the change log.
 
-## 致谢
+## Acknowledgments
 
-- [Exclave](https://github.com/ExclaveNetwork/Exclave) 与 [SagerNet](https://github.com/SagerNet/SagerNet)：Guise 的基础，绝大部分功劳属于原作者。
-- [hufrea/byedpi](https://github.com/hufrea/byedpi)（MIT）：DPI 绕过引擎。
-- [romanvht/ByeByeDPI](https://github.com/romanvht/ByeByeDPI)（GPL-3.0）：参数处理、策略列表和测试逻辑的参考与部分代码。
-- [URenko/Accesser](https://github.com/URenko/Accesser)、[SpaceTimee/Cealing-Host](https://github.com/SpaceTimee/Cealing-Host)：测试目标列表的参考。
-- [Shadowsocks Android](https://github.com/shadowsocks/shadowsocks-android)、[husi](https://github.com/xchacha20-poly1305/husi) 以及其他 SagerNet 分支。
+- [Exclave](https://github.com/ExclaveNetwork/Exclave) and [SagerNet](https://github.com/SagerNet/SagerNet): the foundation of Guise; most of the credit goes to their authors.
+- [hufrea/byedpi](https://github.com/hufrea/byedpi) (MIT): the DPI circumvention engine.
+- [romanvht/ByeByeDPI](https://github.com/romanvht/ByeByeDPI) (GPL-3.0): reference for, and parts of, the argument handling, strategy list and testing logic.
+- [URenko/Accesser](https://github.com/URenko/Accesser) and [SpaceTimee/Cealing-Host](https://github.com/SpaceTimee/Cealing-Host): references for the test target list.
+- [Shadowsocks Android](https://github.com/shadowsocks/shadowsocks-android), [husi](https://github.com/xchacha20-poly1305/husi) and the other SagerNet forks.
 
 ## License
 
@@ -113,6 +115,4 @@ NaïveProxy 插件请从 [klzgrad/naiveproxy](https://github.com/klzgrad/naivepr
 
 Exclave is licensed under the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. However, Exclave optionally incorporates code covered by the GNU General Public License as published by the Free Software Foundation, version 3. If `github.com/exclavenetwork/libexclavecore` is compiled with `with_clash` tag, the GNU General Public License as published by the Free Software Foundation, version 3, applies to all of Exclave.
 
-## Notice
-
-Guise 与 Exclave 一样，以 GPL-3.0-or-later 授权。如果 `libexclavecore` 编译时带有 `with_clash` tag，整个程序适用 GPL-3.0。
+Guise is licensed the same way as Exclave, under GPL-3.0-or-later. If `libexclavecore` is compiled with the `with_clash` tag, GPL-3.0 applies to the whole program.
