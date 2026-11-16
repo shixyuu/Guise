@@ -24,6 +24,11 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
@@ -39,6 +44,7 @@ import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.byedpi.ByeDPIProbe
 import io.nekohasekai.sagernet.byedpi.ByeDPIProbeRunner
+import io.nekohasekai.sagernet.byedpi.ByeDPIProbeTargets
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.databinding.LayoutByedpiProbeBinding
 import kotlinx.coroutines.Job
@@ -76,6 +82,7 @@ class ByeDPIProbeActivity : ThemedActivity() {
         }
         binding.results.layoutManager = LinearLayoutManager(this)
         binding.results.adapter = adapter
+        binding.targets.setOnClickListener { showTargets() }
         binding.settings.setOnClickListener { showSettings() }
         binding.strategies.setOnClickListener { showStrategies() }
         binding.start.setOnClickListener { if (job?.isActive == true) stop() else start() }
@@ -94,11 +101,11 @@ class ByeDPIProbeActivity : ThemedActivity() {
     }
 
     private fun updateSummary() {
-        val sites = ByeDPIProbe.parseSites(DataStore.byedpiProbeSites)
+        val targets = selectedTargets()
         val strategies = ByeDPIProbe.parseStrategies(loadStrategyText(), DataStore.byedpiProbeSni)
         binding.summary.text = getString(
             R.string.byedpi_probe_summary,
-            sites.joinToString(", ") { it.removePrefix("https://") },
+            targets.joinToString(", ") { it.label }.ifEmpty { "—" },
             strategies.size,
             DataStore.byedpiProbeRequests,
             DataStore.byedpiProbeTimeout,
@@ -109,14 +116,15 @@ class ByeDPIProbeActivity : ThemedActivity() {
     private fun setRunning(running: Boolean) {
         binding.start.setText(if (running) R.string.stop else R.string.start)
         binding.settings.isEnabled = !running
+        binding.targets.isEnabled = !running
         binding.strategies.isEnabled = !running
         binding.progress.isVisible = running || rows.isNotEmpty()
         binding.progressText.isVisible = running || rows.isNotEmpty()
     }
 
     private fun start() {
-        val sites = ByeDPIProbe.parseSites(DataStore.byedpiProbeSites)
-        if (sites.isEmpty()) {
+        val targets = selectedTargets()
+        if (targets.isEmpty()) {
             Toast.makeText(this, R.string.byedpi_probe_no_sites, Toast.LENGTH_SHORT).show()
             return
         }
@@ -125,18 +133,23 @@ class ByeDPIProbeActivity : ThemedActivity() {
         rows = plan
         adapter.submit(ByeDPIProbe.sorted(plan))
         val runner = ByeDPIProbeRunner(
-            sites,
+            targets,
             DataStore.byedpiProbeRequests.coerceIn(1, 20),
             DataStore.byedpiProbeTimeout.coerceIn(1, 60),
             DataStore.byedpiProbeConcurrency.coerceIn(1, ByeDPIProbe.MAX_CONCURRENCY),
+            DataStore.byedpiProbeDoh,
         ) { scheduleRefresh() }
+        binding.dns.isVisible = true
+        binding.dns.setText(R.string.byedpi_probe_dns_resolving)
         binding.progress.max = plan.size
         binding.progress.progress = 0
         setRunning(true)
         refresh()
         job = lifecycleScope.launch {
             try {
-                runner.run(plan)
+                runner.run(plan) { resolution ->
+                    runOnUiThread { showResolution(resolution) }
+                }
             } finally {
                 setRunning(false)
                 refresh()
@@ -173,14 +186,105 @@ class ByeDPIProbeActivity : ThemedActivity() {
         adapter.submit(ByeDPIProbe.sorted(current))
     }
 
+    private fun selectedTargets(): List<ByeDPIProbeTargets.Target> =
+        ByeDPIProbeTargets.selected(DataStore.byedpiProbeTargets, DataStore.byedpiProbeCustom)
+
+    private fun showResolution(resolution: ByeDPIProbeRunner.Resolution) {
+        val source = getString(
+            if (resolution.viaDoh) R.string.byedpi_probe_dns_doh else R.string.byedpi_probe_dns_system
+        )
+        binding.dns.text = if (resolution.failed.isEmpty()) {
+            getString(R.string.byedpi_probe_dns_ok, source, resolution.addresses.size)
+        } else {
+            getString(
+                R.string.byedpi_probe_dns_failed, source, resolution.addresses.size,
+                resolution.failed.joinToString(", ")
+            )
+        }
+    }
+
+    private fun tagText(tag: ByeDPIProbeTargets.Tag): String = getString(
+        when (tag) {
+            ByeDPIProbeTargets.Tag.SNI -> R.string.byedpi_probe_tag_sni
+            ByeDPIProbeTargets.Tag.UNCERTAIN -> R.string.byedpi_probe_tag_uncertain
+            ByeDPIProbeTargets.Tag.IP_BLOCKED -> R.string.byedpi_probe_tag_ip_blocked
+            ByeDPIProbeTargets.Tag.CONTROL -> R.string.byedpi_probe_tag_control
+            ByeDPIProbeTargets.Tag.CUSTOM -> R.string.byedpi_probe_tag_custom
+        }
+    )
+
+    private fun showTargets() {
+        val all = ByeDPIProbeTargets.all(DataStore.byedpiProbeCustom)
+        val selected = ByeDPIProbeTargets.parseSelection(DataStore.byedpiProbeTargets).toMutableSet()
+        val checked = BooleanArray(all.size) { all[it].id in selected }
+        val secondary = obtainStyledAttributes(intArrayOf(android.R.attr.textColorSecondary)).run {
+            val color = getColor(0, 0x88888888.toInt()); recycle(); color
+        }
+        val labels = all.map { target ->
+            SpannableStringBuilder(target.label).apply {
+                val start = length
+                append("\n").append(tagText(target.tag)).append(" · ")
+                    .append(target.hosts.joinToString(", "))
+                setSpan(RelativeSizeSpan(0.8f), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                setSpan(ForegroundColorSpan(secondary), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }.toTypedArray<CharSequence>()
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.byedpi_probe_targets)
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked -> checked[which] = isChecked }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val ids = all.indices.filter { checked[it] }.map { all[it].id }
+                if (ids.isEmpty()) {
+                    Toast.makeText(this, R.string.byedpi_probe_no_sites, Toast.LENGTH_SHORT).show()
+                } else {
+                    DataStore.byedpiProbeTargets = ByeDPIProbeTargets.encodeSelection(ids)
+                }
+                updateSummary()
+            }
+            .setNeutralButton(R.string.byedpi_probe_custom) { _, _ ->
+                // keep the ticks made so far, then edit the custom list
+                val ids = all.indices.filter { checked[it] }.map { all[it].id }
+                if (ids.isNotEmpty()) DataStore.byedpiProbeTargets = ByeDPIProbeTargets.encodeSelection(ids)
+                showCustomTargets()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showCustomTargets() {
+        val view = layoutInflater.inflate(R.layout.layout_byedpi_probe_strategies, null)
+        val text = view.findViewById<EditText>(R.id.strategies)
+        text.setText(DataStore.byedpiProbeCustom)
+        text.setHint(R.string.byedpi_probe_custom_hint_example)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.byedpi_probe_custom)
+            .setMessage(R.string.byedpi_probe_custom_hint)
+            .setView(view)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val before = ByeDPIProbeTargets.parseCustom(DataStore.byedpiProbeCustom).map { it.id }.toSet()
+                DataStore.byedpiProbeCustom = text.text.toString().trim()
+                val custom = ByeDPIProbeTargets.parseCustom(DataStore.byedpiProbeCustom)
+                // newly added entries start ticked; removed ones drop out of the selection
+                val valid = ByeDPIProbeTargets.all(DataStore.byedpiProbeCustom).map { it.id }.toSet()
+                val ids = ByeDPIProbeTargets.parseSelection(DataStore.byedpiProbeTargets)
+                    .filter { it in valid }.toMutableList()
+                custom.filter { it.id !in before && it.id !in ids }.forEach { ids.add(it.id) }
+                if (ids.isNotEmpty()) DataStore.byedpiProbeTargets = ByeDPIProbeTargets.encodeSelection(ids)
+                updateSummary()
+                showTargets()
+            }
+            .setNegativeButton(android.R.string.cancel) { _, _ -> showTargets() }
+            .show()
+    }
+
     private fun showSettings() {
         val view = layoutInflater.inflate(R.layout.layout_byedpi_probe_settings, null)
-        val sites = view.findViewById<EditText>(R.id.sites)
         val requests = view.findViewById<EditText>(R.id.requests)
         val timeout = view.findViewById<EditText>(R.id.timeout)
         val concurrency = view.findViewById<EditText>(R.id.concurrency)
         val sni = view.findViewById<EditText>(R.id.sni)
-        sites.setText(DataStore.byedpiProbeSites)
+        val doh = view.findViewById<CheckBox>(R.id.doh)
+        doh.isChecked = DataStore.byedpiProbeDoh
         requests.setText(DataStore.byedpiProbeRequests.toString())
         timeout.setText(DataStore.byedpiProbeTimeout.toString())
         concurrency.setText(DataStore.byedpiProbeConcurrency.toString())
@@ -189,8 +293,7 @@ class ByeDPIProbeActivity : ThemedActivity() {
             .setTitle(R.string.byedpi_probe_settings)
             .setView(view)
             .setPositiveButton(android.R.string.ok) { _, _ ->
-                DataStore.byedpiProbeSites = sites.text.toString().trim()
-                    .ifBlank { ByeDPIProbe.DEFAULT_SITES }
+                DataStore.byedpiProbeDoh = doh.isChecked
                 DataStore.byedpiProbeRequests = requests.text.toString().toIntOrNull()
                     ?.coerceIn(1, 20) ?: ByeDPIProbe.DEFAULT_REQUESTS
                 DataStore.byedpiProbeTimeout = timeout.text.toString().toIntOrNull()
@@ -202,7 +305,7 @@ class ByeDPIProbeActivity : ThemedActivity() {
                 updateSummary()
             }
             .setNeutralButton(R.string.byedpi_probe_reset) { _, _ ->
-                DataStore.byedpiProbeSites = ByeDPIProbe.DEFAULT_SITES
+                DataStore.byedpiProbeDoh = true
                 DataStore.byedpiProbeRequests = ByeDPIProbe.DEFAULT_REQUESTS
                 DataStore.byedpiProbeTimeout = ByeDPIProbe.DEFAULT_TIMEOUT_SECONDS
                 DataStore.byedpiProbeConcurrency = ByeDPIProbe.DEFAULT_CONCURRENCY
@@ -275,7 +378,9 @@ class ByeDPIProbeActivity : ThemedActivity() {
             if (!row.finished) parts.add(getString(R.string.byedpi_probe_running))
         }
         row.error?.let { parts.add(it) }
-        return parts.joinToString(" · ")
+        val perTarget = synchronized(row.perTarget) { row.perTarget.entries.map { it.key to it.value.copyOf() } }
+        val detail = perTarget.joinToString("  ") { (label, c) -> "$label ${c[0]}/${c[1]}" }
+        return parts.joinToString(" · ") + if (detail.isNotEmpty()) "\n" + detail else ""
     }
 
     private inner class ResultAdapter : RecyclerView.Adapter<ResultHolder>() {

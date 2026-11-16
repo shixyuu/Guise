@@ -117,25 +117,45 @@ with the new arguments. If byedpi rejects the arguments it exits and the service
 ## Connectivity test (ByeDPI probe) — implemented in guise.3
 Entry points: Settings → ByeDPI → "Connectivity test", and a card on the main screen's Network page. Both open
 `ui/ByeDPIProbeActivity`.
-- **Inputs (persisted in DataStore `byedpiProbe*`):** sites (default www.google.com / www.youtube.com /
-  www.wikipedia.org, bare hosts become https URLs), requests per site (3), timeout (5 s), strategies in parallel
-  (3, max 4), fake SNI for `{sni}` (`google.com`, ByeByeDPI's default) and the strategy list (empty = bundled
-  `assets/byedpi/strategies.list`, a verbatim copy of ByeByeDPI's `proxytest_strategies.list` @ 7b7eecf plus
-  an attribution header). `{sni}` becomes `"<sni>"` (quoted, as ByeByeDPI's TestService does).
+- **Targets (guise.4):** a checklist of presets (`byedpi/ByeDPIProbeTargets.kt`) plus user-added domains/URLs,
+  selection remembered in `byedpiProbeTargets` / `byedpiProbeCustom`. Presets focus on sites that from mainland
+  China are blocked by DNS poisoning + SNI-based DPI while their IPs stay reachable — the case desync can fix.
+  Evidence used: inclusion in the SNI-bypass rule sets of URenko/Accesser (`accesser/rules.toml`, `accesser/pac`)
+  and SpaceTimee/Cealing-Host (`Cealing-Host.json`, used by Sheas Cealer), both maintained for mainland users.
+  | preset | URLs hit | tag | default |
+  |---|---|---|---|
+  | X / Twitter | x.com, abs.twimg.com, pbs.twimg.com, twitter.com favicons | SNI (Cealing-Host) | on |
+  | Twitch | www.twitch.tv favicon, static-cdn.jtvnw.net preview jpg | SNI (both) | on |
+  | Pixiv | www.pixiv.net favicon, s.pximg.net logo | SNI (both; Pixiv-Nginx) | on |
+  | Wikipedia | zh.wikipedia.org favicon, upload.wikimedia.org logo | SNI (both) | on |
+  | Reddit, Steam Community, Internet Archive | favicons | SNI (both) | off |
+  | Discord, Pinterest, Instagram | favicons | uncertain (listed, but IPs/CDN often blocked) | off |
+  | Google, YouTube | favicon, gstatic generate_204 | usually IP-blocked (Cealing routes Google via its own relay host) | off |
+  | GitHub | favicon | control, normally not blocked | off |
+  Each preset gets `requests` requests cycling through its URLs; results show per-target counts.
+- **Other inputs:** requests per target (3), timeout (5 s), strategies in parallel (3, max 4), fake SNI for
+  `{sni}` (`google.com`), strategy list (empty = bundled `assets/byedpi/strategies.list`, a verbatim copy of
+  ByeByeDPI's `proxytest_strategies.list` @ 7b7eecf plus an attribution header; `{sni}` becomes `"<sni>"`), and
+  "Resolve with DoH" (on).
+- **DNS:** blocked sites are usually DNS-poisoned as well, and byedpi resolves SOCKS domain requests with the
+  system resolver, so the test resolves every host once up front via DoH JSON to IP-literal endpoints
+  (1.1.1.1, 1.0.0.1, 8.8.8.8; system DNS as fallback) and connects to that IP with SNI/Host = real name. In
+  normal use the core's DNS settings decide which IP byedpi gets.
 - **Plan:** row 1 = direct without ByeDPI (baseline, not applicable), row 2 = the current `byedpiArgs`, then the
   list (current args not repeated). Parsing/plan/median/sorting live in pure-JVM `byedpi/ByeDPIProbe.kt`
   (unit-tested in `ByeDPIProbeTest`).
 - **Runner (`byedpi/ByeDPIProbeRunner.kt`, UI process):** per strategy, `ProcessBuilder` starts
   `libbyedpi.so` via the same `ByeDPI.buildCommand` as runtime on a `mkPort()` port, waits for it to listen
-  (`ByeDPI.waitForListening`, shared with `V2RayInstance`), runs `requests × sites` HTTPS requests through
-  `Proxy(SOCKS, 127.0.0.1:port)` (sites in parallel), then kills the process. Output goes to logcat tag
-  `libbyedpi` with a `[probe:port]` prefix. Request check = ByeByeDPI `SiteCheckUtils`: follow redirects,
-  `Connection: close`, any HTTP status counts, body must reach Content-Length (or read up to 1 MB); a
-  truncated body is treated as blocked. Strategies run in parallel under a semaphore; Stop cancels the job and
+  (`ByeDPI.waitForListening`, shared with `V2RayInstance`), runs the requests through
+  `Proxy(SOCKS, 127.0.0.1:port)` to the pre-resolved IP (targets in parallel) with a small HTTP/1.1 client over
+  `SSLSocket` (SNI + hostname verification on the real name), then kills the process. Output goes to logcat tag
+  `libbyedpi` with a `[probe:port]` prefix. Request check = ByeByeDPI `SiteCheckUtils`: `Connection: close`,
+  any HTTP status counts, body must reach Content-Length (or end cleanly / 1 MB); a truncated body or TLS
+  failure counts as blocked. Redirects are not followed (the first response already proves reachability). Strategies run in parallel under a semaphore; Stop cancels the job and
   the `finally` kills the processes.
 - **Network context:** same rule as the URL test in `ConfigurationFragment`: if Guise runs in VPN mode with the
-  System stack, the app UID is inside the tunnel, so byedpi gets `--protect-path` and the baseline requests use
-  `Network.openConnection` on the underlying network from `DefaultNetworkListener`. With gVisor or when
+  System stack, the app UID is inside the tunnel, so byedpi gets `--protect-path` and the baseline sockets and DoH lookups use
+  `Network.bindSocket`/`openConnection` on the underlying network from `DefaultNetworkListener`. With gVisor or when
   stopped, the app is outside the VPN and nothing extra is needed. Testing *through a proxy node* is not
   supported; the help text says results describe the phone's current network only.
 - **Results:** sorted by success rate, then median latency (baseline pinned on top). Tap → dialog: Apply (writes
@@ -154,5 +174,12 @@ Entry points: Settings → ByeDPI → "Connectivity test", and a card on the mai
   services/TestService.kt + activities/TestActivity.kt + data/TestResult.kt (`{sni}` substitution, run flow,
   result model; adapted in `byedpi/ByeDPIProbe.kt` and `ui/ByeDPIProbeActivity.kt`). Attributed in those files
   and here.
+- URenko/Accesser and SpaceTimee/Cealing-Host were consulted only as evidence for which sites are SNI-blocked
+  (domain names in their rule lists); no code or rule files were copied.
+- Note on "domain fronting" for Google (asked in guise.3 feedback): Sheas Cealer reaches Google by connecting to
+  a reachable Google front-end IP with a different, unblocked SNI (`g.cn`) and the real Host header, launched as
+  Chromium flags (host-rules + ignore cert errors). That needs control of the browser's TLS (or a MITM CA), which
+  a VPN/proxy app like Guise does not have on modern Android, and it still depends on finding unblocked Google
+  IPs. byedpi's fake-SNI packets (`-f/-n`) are a different trick (decoy packets that the server never sees).
 - dovecoteescapee/ByeDPIAndroid (GPL-3.0, last commit 2024-09) was reviewed; ByeByeDPI is its maintained successor
   and supersedes it, so nothing was taken from it directly.

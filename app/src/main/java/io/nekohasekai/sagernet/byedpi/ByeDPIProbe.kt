@@ -27,8 +27,6 @@ package io.nekohasekai.sagernet.byedpi
  */
 object ByeDPIProbe {
 
-    const val DEFAULT_SITES = "www.google.com\nwww.youtube.com\nwww.wikipedia.org"
-
     /** ByeByeDPI's default "byedpi_proxytest_sni". */
     const val DEFAULT_SNI = "google.com"
     const val DEFAULT_REQUESTS = 3
@@ -53,15 +51,66 @@ object ByeDPIProbe {
             .distinct()
     }
 
-    /** Sites, one per line or comma separated; bare hosts become https URLs. */
-    fun parseSites(text: String): List<String> {
-        return text.lines()
-            .map { it.substringBefore('#') }
-            .flatMap { it.split(',', ' ', '\t') }
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .map { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" }
-            .distinct()
+    /** Requests for one target: [requests] requests cycling through its URLs. */
+    fun requestUrls(target: ByeDPIProbeTargets.Target, requests: Int): List<String> =
+        List(requests) { target.urls[it % target.urls.size] }
+
+    /**
+     * Read an HTTP/1.x response (sent with `Connection: close`) and decide whether it arrived
+     * intact: any status counts as reachable (like ByeByeDPI's SiteCheckUtils), but the body must
+     * reach Content-Length, or for chunked/unsized bodies end cleanly; at most [limit] bytes are
+     * read. A DPI box that kills the connection mid-way therefore counts as a failure.
+     * @return the status code, or null on a broken/truncated response.
+     */
+    fun readResponse(input: java.io.InputStream, limit: Long = 1024L * 1024): Int? {
+        val stream = java.io.BufferedInputStream(input)
+        val statusLine = readLine(stream) ?: return null
+        val parts = statusLine.split(' ')
+        if (parts.size < 2 || !parts[0].startsWith("HTTP/")) return null
+        val code = parts[1].toIntOrNull() ?: return null
+        var contentLength = -1L
+        var chunked = false
+        while (true) {
+            val line = readLine(stream) ?: return null
+            if (line.isEmpty()) break
+            val colon = line.indexOf(':')
+            if (colon <= 0) continue
+            val name = line.substring(0, colon).trim().lowercase()
+            val value = line.substring(colon + 1).trim()
+            when (name) {
+                "content-length" -> contentLength = value.toLongOrNull() ?: -1L
+                "transfer-encoding" -> chunked = value.lowercase().contains("chunked")
+            }
+        }
+        val buffer = ByteArray(8192)
+        if (!chunked && contentLength >= 0) {
+            val want = minOf(contentLength, limit)
+            var got = 0L
+            while (got < want) {
+                val n = stream.read(buffer, 0, minOf(buffer.size.toLong(), want - got).toInt())
+                if (n < 0) return null
+                got += n
+            }
+            return code
+        }
+        var total = 0L
+        while (total < limit) {
+            val n = stream.read(buffer)
+            if (n < 0) break
+            total += n
+        }
+        return code
+    }
+
+    private fun readLine(stream: java.io.InputStream): String? {
+        val sb = StringBuilder()
+        while (true) {
+            val c = stream.read()
+            if (c < 0) return null
+            if (c == '\n'.code) return sb.toString().trimEnd('\r')
+            sb.append(c.toChar())
+            if (sb.length > 16384) return null
+        }
     }
 
     /**
@@ -102,6 +151,21 @@ object ByeDPIProbe {
         @Volatile var finished = false
         @Volatile var error: String? = null
         val latencies: MutableList<Long> = java.util.Collections.synchronizedList(mutableListOf())
+
+        /** label -> [success, done] per target. */
+        val perTarget: MutableMap<String, IntArray> = java.util.Collections.synchronizedMap(LinkedHashMap())
+
+        @Synchronized
+        fun record(target: String, latency: Long?) {
+            done++
+            val counts = perTarget.getOrPut(target) { IntArray(2) }
+            counts[1]++
+            if (latency != null) {
+                success++
+                counts[0]++
+                latencies.add(latency)
+            }
+        }
 
         val successRate: Double get() = if (total > 0) success.toDouble() / total else 0.0
         val medianLatency: Long? get() = median(synchronized(latencies) { latencies.toList() })

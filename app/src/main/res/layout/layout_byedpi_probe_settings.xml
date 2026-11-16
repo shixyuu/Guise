@@ -14,20 +14,6 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/byedpi_probe_sites" />
-
-        <EditText
-            android:id="@+id/sites"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="top"
-            android:importantForAutofill="no"
-            android:inputType="textMultiLine|textUri"
-            android:minLines="3" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/byedpi_probe_requests" />
 
@@ -76,5 +62,20 @@
             android:layout_height="wrap_content"
             android:importantForAutofill="no"
             android:inputType="textUri" />
+
+        <CheckBox
+            android:id="@+id/doh"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/byedpi_probe_doh" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
+            android:text="@string/byedpi_probe_doh_sum"
+            android:textAppearance="?attr/textAppearanceCaption"
+            android:textColor="?android:attr/textColorSecondary" />
     </LinearLayout>
 </ScrollView>

@@ -49,11 +49,16 @@ class ByeDPIProbeTest {
     }
 
     @Test
-    fun parseSites() {
-        assertEquals(
-            listOf("https://www.google.com", "http://a.example", "https://b.example"),
-            ByeDPIProbe.parseSites("www.google.com\nhttp://a.example, b.example\n# x\n\nwww.google.com")
-        )
+    fun readResponseChecksBodyLength() {
+        fun read(raw: String) = ByeDPIProbe.readResponse(raw.byteInputStream())
+        assertEquals(200, read("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"))
+        assertEquals(403, read("HTTP/1.1 403 Forbidden\r\ncontent-length: 2\r\n\r\nno"))
+        assertNull(read("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nhello")) // truncated
+        assertEquals(204, read("HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n"))
+        assertEquals(200, read("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"))
+        assertNull(read("HTTP/1.1 200 OK\r\nContent-Le")) // cut inside headers
+        assertNull(read("\u0015\u0003\u0003\u0000\u0002\u0002\u0046")) // garbage / TLS alert
+        assertNull(read(""))
     }
 
     @Test
@@ -88,6 +93,57 @@ class ByeDPIProbeTest {
         assertEquals(
             listOf(null, "fast", "slow", "half", "pending"),
             ByeDPIProbe.sorted(listOf(pending, half, slow, baseline, fast)).map { it.args }
+        )
+    }
+}
+
+class ByeDPIProbeTargetsTest {
+
+    @Test
+    fun presetsAreValid() {
+        val ids = ByeDPIProbeTargets.PRESETS.map { it.id }
+        assertEquals(ids.size, ids.toSet().size)
+        ByeDPIProbeTargets.PRESETS.forEach { target ->
+            assertTrue(target.id, target.urls.isNotEmpty())
+            target.urls.forEach { assertTrue(it, it.startsWith("https://") && ByeDPIProbeTargets.hostOf(it) != null) }
+        }
+        val defaults = ByeDPIProbeTargets.selected(ByeDPIProbeTargets.DEFAULT_SELECTION, "").map { it.id }
+        assertTrue(defaults.containsAll(listOf("x", "twitch")))
+        assertTrue("google" !in defaults && "youtube" !in defaults)
+        assertEquals(
+            listOf("x.com", "abs.twimg.com", "pbs.twimg.com", "twitter.com"),
+            ByeDPIProbeTargets.PRESETS.first { it.id == "x" }.hosts
+        )
+    }
+
+    @Test
+    fun customEntriesAndSelection() {
+        val custom = ByeDPIProbeTargets.parseCustom(
+            "Example.com\n# comment\nhttps://cdn.example.org/a.png  # logo\n\nexample.com\nnot a url"
+        )
+        assertEquals(
+            listOf("https://Example.com/", "https://cdn.example.org/a.png", "https://example.com/"),
+            custom.map { it.urls.single() }
+        )
+        assertEquals("example.com", custom[0].label)
+        assertEquals(ByeDPIProbeTargets.Tag.CUSTOM, custom[0].tag)
+
+        val text = "cdn.example.org\nfoo.test"
+        val selection = ByeDPIProbeTargets.encodeSelection(
+            listOf("twitch", ByeDPIProbeTargets.CUSTOM_PREFIX + "https://foo.test/", "gone")
+        )
+        assertEquals(
+            listOf("twitch", "custom:https://foo.test/"),
+            ByeDPIProbeTargets.selected(selection, text).map { it.id }
+        )
+    }
+
+    @Test
+    fun requestsCycleThroughUrls() {
+        val x = ByeDPIProbeTargets.PRESETS.first { it.id == "x" }
+        assertEquals(
+            listOf(x.urls[0], x.urls[1], x.urls[2], x.urls[3], x.urls[0]),
+            ByeDPIProbe.requestUrls(x, 5)
         )
     }
 }
