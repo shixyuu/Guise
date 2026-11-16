@@ -19,6 +19,7 @@
 
 package io.nekohasekai.sagernet.fmt.v2ray;
 
+import io.nekohasekai.sagernet.byedpi.ByeDPI;
 import com.esotericsoftware.kryo.io.ByteBufferInput;
 import com.esotericsoftware.kryo.io.ByteBufferOutput;
 
@@ -653,6 +654,10 @@ public abstract class StandardV2RayBean extends AbstractBean {
     @Override
     public boolean isInsecure() {
         if (Libexclavecore.isLoopbackIP(serverAddress) || serverAddress.equals("localhost")) {
+            return false;
+        }
+        // Guise: the built-in ByeDPI profile is a loopback hop to the local byedpi process
+        if (ByeDPI.PROFILE_MARKER_ADDRESS.equals(serverAddress)) {
             return false;
         }
         switch (security) {
