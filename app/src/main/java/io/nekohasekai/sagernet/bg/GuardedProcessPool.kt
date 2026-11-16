@@ -126,6 +126,13 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
         }
     }
 
+    /** Guise: stop all processes of this pool and wait until they are gone. */
+    suspend fun closeAndJoin() {
+        val job = coroutineContext[Job]!!
+        cancel()
+        job.cancelAndJoin()
+    }
+
     @MainThread
     fun close(scope: CoroutineScope) {
         cancel()

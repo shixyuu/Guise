@@ -22,6 +22,7 @@
 package io.nekohasekai.sagernet.database
 
 import io.nekohasekai.sagernet.byedpi.ByeDPI
+import io.nekohasekai.sagernet.byedpi.ByeDPIAuto
 import io.nekohasekai.sagernet.byedpi.ByeDPIProbe
 import io.nekohasekai.sagernet.byedpi.ByeDPIProbeTargets
 import io.nekohasekai.sagernet.dualnet.DualNet
@@ -200,6 +201,14 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var byedpiMode by configurationStore.stringToInt(Key.BYEDPI_MODE) { ByeDPI.Mode.ALL_DIRECT }
     var byedpiDomains by configurationStore.string(Key.BYEDPI_DOMAINS)
     var byedpiArgs by configurationStore.stringNotBlack(Key.BYEDPI_ARGS) { ByeDPI.DEFAULT_ARGS }
+    var byedpiPreLayer by configurationStore.boolean(Key.BYEDPI_PRE_LAYER)
+    var byedpiAuto by configurationStore.boolean(Key.BYEDPI_AUTO)
+    var byedpiAutoInterval by configurationStore.stringToInt(Key.BYEDPI_AUTO_INTERVAL) { ByeDPIAuto.DEFAULT_INTERVAL_MINUTES }
+    var byedpiAutoPool by configurationStore.string(Key.BYEDPI_AUTO_POOL)
+    var byedpiAutoLastTest by configurationStore.long(Key.BYEDPI_AUTO_LAST_TEST)
+    var byedpiAutoLastFull by configurationStore.long(Key.BYEDPI_AUTO_LAST_FULL)
+    var byedpiAutoState by configurationStore.int(Key.BYEDPI_AUTO_STATE)
+    var byedpiAutoSwitchedAt by configurationStore.long(Key.BYEDPI_AUTO_SWITCHED_AT)
     var byedpiDns by configurationStore.stringNotBlack(Key.BYEDPI_DNS) { ByeDPI.DEFAULT_DNS }
     var byedpiDnsViaByedpi by configurationStore.boolean(Key.BYEDPI_DNS_VIA_BYEDPI) { true }
 

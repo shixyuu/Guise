@@ -43,6 +43,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.*
 import io.nekohasekai.sagernet.Key.MODE_VPN
 import io.nekohasekai.sagernet.byedpi.ByeDPI
+import io.nekohasekai.sagernet.byedpi.ByeDPIAuto
+import io.nekohasekai.sagernet.byedpi.ByeDPIAutoStrategy
 import io.nekohasekai.sagernet.dualnet.DualNet
 import io.nekohasekai.sagernet.dualnet.DualNetworkManager
 import io.nekohasekai.sagernet.database.DataStore
@@ -408,6 +410,37 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             onPreferenceChangeListener = reloadListener
         }
         findPreference<SwitchPreference>(Key.BYEDPI_DNS_VIA_BYEDPI)!!.onPreferenceChangeListener = reloadListener
+        // Guise: ByeDPI pre-layer and automatic strategy selection
+        findPreference<SwitchPreference>(Key.BYEDPI_PRE_LAYER)!!.onPreferenceChangeListener = reloadListener
+        val byedpiAuto = findPreference<SwitchPreference>(Key.BYEDPI_AUTO)!!
+        val byedpiAutoInterval = findPreference<EditTextPreference>(Key.BYEDPI_AUTO_INTERVAL)!!
+        val byedpiAutoStatus = findPreference<Preference>(Key.BYEDPI_AUTO_STATUS)!!
+        fun updateByeDPIAutoVisibility(enabled: Boolean) {
+            byedpiAutoInterval.isVisible = enabled
+            byedpiAutoStatus.isVisible = enabled
+        }
+        byedpiAuto.setOnPreferenceChangeListener { _, newValue ->
+            updateByeDPIAutoVisibility(newValue as Boolean)
+            needReload()
+            true
+        }
+        updateByeDPIAutoVisibility(byedpiAuto.isChecked)
+        byedpiAutoInterval.setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
+        byedpiAutoInterval.onPreferenceChangeListener = reloadListener
+        byedpiAutoStatus.setOnPreferenceClickListener {
+            val pool = ByeDPIAuto.decode(DataStore.byedpiAutoPool)
+            val text = if (pool.isEmpty()) getString(R.string.byedpi_auto_status_none) else
+                pool.joinToString("\n\n") { e ->
+                    "${(e.successRate * 100).toInt()}%" + (e.latency?.let { " · $it ms" } ?: "") + "\n" + e.args
+                }
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.byedpi_auto_pool_title)
+                .setMessage(text)
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+            true
+        }
+        updateByeDPIAutoStatus()
         // Guise: dual-network split
         val dualNetEnabled = findPreference<SwitchPreference>(Key.DUAL_NET_ENABLED)!!
         val dualNetStrategy = findPreference<ListPreference>(Key.DUAL_NET_STRATEGY)!!
@@ -720,6 +753,25 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
     }
 
 
+    private fun updateByeDPIAutoStatus() {
+        val pref = findPreference<Preference>(Key.BYEDPI_AUTO_STATUS) ?: return
+        val pool = ByeDPIAuto.decode(DataStore.byedpiAutoPool)
+        val last = DataStore.byedpiAutoLastTest
+        val base = if (last <= 0L) getString(R.string.byedpi_auto_status_none) else getString(
+            R.string.byedpi_auto_status_line, DataStore.byedpiArgs, pool.size,
+            android.text.format.DateFormat.getTimeFormat(requireContext()).format(java.util.Date(last)),
+        )
+        val state = when (DataStore.byedpiAutoState) {
+            ByeDPIAutoStrategy.Companion.State.FULL_TEST -> R.string.byedpi_auto_state_full
+            ByeDPIAutoStrategy.Companion.State.POOL_TEST -> R.string.byedpi_auto_state_pool
+            ByeDPIAutoStrategy.Companion.State.HEALTH_CHECK -> R.string.byedpi_auto_state_health
+            ByeDPIAutoStrategy.Companion.State.NO_TARGETS -> R.string.byedpi_auto_state_no_targets
+            ByeDPIAutoStrategy.Companion.State.FAILED -> R.string.byedpi_auto_state_failed
+            else -> null
+        }
+        pref.summary = if (state != null) base + "\n" + getString(state) else base
+    }
+
     private fun updateDualNetStatus() {
         val pref = findPreference<Preference>(Key.DUAL_NET_STATUS) ?: return
         val lines = runCatching { DualNetworkManager.statusFile.readLines() }.getOrNull()
@@ -738,6 +790,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             isProxyApps.isChecked = DataStore.proxyApps
         }
         updateDualNetStatus()
+        updateByeDPIAutoStatus()
         // Guise: the connectivity test may have changed the ByeDPI arguments.
         findPreference<EditTextPreference>(Key.BYEDPI_ARGS)?.let {
             if (it.text != DataStore.byedpiArgs) it.text = DataStore.byedpiArgs

@@ -281,7 +281,10 @@ fun buildV2RayConfig(
     val byedpiProfileInUse = !forExport && (proxies + extraProxies.values.flatten()).any {
         (it.requireBean() as? SOCKSBean)?.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
     }
-    val byedpiPort = if (byedpiGlobal || byedpiProfileInUse) mkPort() else 0
+    // Guise: "ByeDPI in front of TCP proxies": every outbound that reaches its server over TCP
+    // dials it through ByeDPI's SOCKS server (only the hop facing the network, see below).
+    val byedpiPreLayer = !forTest && !forExport && DataStore.byedpiPreLayer
+    val byedpiPort = if (byedpiGlobal || byedpiProfileInUse || byedpiPreLayer) mkPort() else 0
 
     var directDNS = DataStore.directDns.listByLineOrComma().filter { !it.startsWith("#") }
     if (DataStore.useLocalDnsAsDirectDns) directDNS = listOf("localhost")
@@ -302,6 +305,7 @@ fun buildV2RayConfig(
     val byedpiReplacesRemoteDns = byedpiDnsPlan.active && byedpiDnsPlan.replaceRemoteDns
     val byedpiDnsDomains = byedpiDnsPlan.domains
     var hasDnsTagByedpi = false
+    val byedpiPreLayerOutbounds = mutableListOf<OutboundObject>()
 
     // Guise: dual-network split. Only outbounds that dial a real remote proxy server are marked;
     // never with the ByeDPI-only profile (its exit IP would be the phone's own, on two networks).
@@ -2151,6 +2155,18 @@ fun buildV2RayConfig(
                         currentOutbound = gson.fromJson(bean.content, OutboundObject::class.java).apply { init() }
                     }
 
+                    if (byedpiPreLayer && byedpiPort > 0 && !proxyEntity.needExternal() && ByeDPI.preLayerApplies(
+                            currentOutbound.protocol,
+                            currentOutbound.streamSettings?.network,
+                            currentOutbound.streamSettings?.tlsSettings?.alpn,
+                            (bean is MieruBean && bean.protocol == MieruBean.PROTOCOL_UDP) ||
+                                    (bean is TrustTunnelBean && bean.protocol == "quic"),
+                            bean.serverAddress,
+                        )
+                    ) {
+                        byedpiPreLayerOutbounds.add(currentOutbound)
+                    }
+
                     if (dualNetSplit && currentOutbound.protocol !in setOf("freedom", "blackhole", "dns", "loopback") &&
                         !(bean is SOCKSBean && bean.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS)
                     ) {
@@ -2613,6 +2629,17 @@ fun buildV2RayConfig(
                 )
             }
         })
+
+        // Guise: ByeDPI pre-layer. Hops that already dial through another outbound (inner hops of a
+        // chain) keep that; only the hop that faces the network goes through ByeDPI.
+        for (outbound in byedpiPreLayerOutbounds) {
+            if (outbound.proxySettings == null) {
+                outbound.proxySettings = OutboundObject.ProxySettingsObject().apply {
+                    tag = ByeDPI.TAG_BYEDPI
+                    transportLayer = true
+                }
+            }
+        }
 
         if (byedpiPort > 0) {
             // Guise: ByeDPI local SOCKS5 server (process started by V2RayInstance.launch).

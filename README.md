@@ -16,6 +16,12 @@
 - Domains that go through ByeDPI are resolved over encrypted DNS (by default `https://1.1.1.1/dns-query` and `https://8.8.8.8/dns-query`) instead of the poisoned system DNS. The DNS queries themselves can optionally be sent through ByeDPI too.
 - Default arguments: `-d1 -r1+s`. OOB is not used, because some middleboxes insert the OOB byte into the stream and break the TLS handshake.
 
+### ByeDPI in front of TCP proxies
+- One switch makes every TCP-based proxy (Shadowsocks, VMess, VLESS, Trojan, AnyTLS, SSH, …; tcp/TLS/REALITY/ws/grpc/httpupgrade/xhttp) connect to its server through ByeDPI, so the handshake to your server is desynced too. UDP/QUIC protocols (Hysteria2, TUIC, WireGuard, …) are not affected. In chains only the first, network-facing hop goes through ByeDPI.
+
+### Automatic strategy selection
+- Optional. Tests all strategies against your selected sites, keeps the best 12 as a pool and applies the best one. The pool is re-tested every hour (configurable), the current strategy is health-checked every 5 minutes and replaced by the next working pool entry when it fails. Switching restarts ByeDPI, which drops connections going through it.
+
 ### Connectivity test (strategy tester)
 - Tries dozens of ByeDPI argument sets against the sites you select, using a plain direct connection as the baseline, and ranks them by success rate and latency. A working set can be applied with one tap.
 - Built-in targets include X/Twitter, Twitch, Pixiv, Wikipedia, Reddit, Steam Community and the Internet Archive, with GitHub as a control.

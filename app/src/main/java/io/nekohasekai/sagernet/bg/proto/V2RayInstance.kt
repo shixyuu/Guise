@@ -77,7 +77,10 @@ abstract class V2RayInstance(
      */
     protected open fun byedpiProtectPath(): String? = null
 
-    protected fun launchByeDPI() {
+    /** Guise: byedpi runs in its own pool so the automatic strategy selection can restart it. */
+    private var byedpiProcesses: GuardedProcessPool? = null
+
+    protected fun launchByeDPI(args: String = DataStore.byedpiArgs) {
         val port = config.byedpiPort
         if (port <= 0) return
         val executable = File(SagerNet.application.applicationInfo.nativeLibraryDir, ByeDPI.EXECUTABLE)
@@ -86,14 +89,16 @@ abstract class V2RayInstance(
             error("ByeDPI executable not found: ${executable.absolutePath}")
         }
         val commands = ByeDPI.buildCommand(
-            executable.absolutePath, port, DataStore.byedpiArgs, byedpiProtectPath()
+            executable.absolutePath, port, args, byedpiProtectPath()
         ).toMutableList()
         if (DataStore.logLevel >= LogLevel.DEBUG) {
             // per-connection desync log, shown in the in-app log under tag "libbyedpi"
             commands.add(1, "-x1")
         }
         Log.i("Guise", "ByeDPI: " + commands.joinToString(" "))
-        processes.start(commands)
+        byedpiProcesses = GuardedProcessPool {
+            Log.e("Guise", "ByeDPI stopped: ${it.message}")
+        }.apply { start(commands) }
         // Don't let the core dial 127.0.0.1:port before byedpi is listening.
         val ready = runBlocking(Dispatchers.IO) { ByeDPI.waitForListening(port) }
         if (ready) {
@@ -101,6 +106,18 @@ abstract class V2RayInstance(
         } else {
             Log.w("Guise", "ByeDPI did not open 127.0.0.1:$port within 1.5s (see libbyedpi log)")
         }
+    }
+
+    /**
+     * Guise: replace the running byedpi with one using [args] on the same port (connections
+     * through the old process are dropped; new ones wait at most ~1.5 s for the new listener).
+     */
+    suspend fun restartByeDPI(args: String) {
+        if (config.byedpiPort <= 0 || isClosed) return
+        byedpiProcesses?.closeAndJoin()
+        byedpiProcesses = null
+        if (isClosed) return
+        launchByeDPI(args)
     }
 
     protected open fun buildConfig() {
@@ -283,6 +300,8 @@ abstract class V2RayInstance(
         }
 
         if (::processes.isInitialized) processes.close(GlobalScope + Dispatchers.IO)
+        byedpiProcesses?.close(GlobalScope + Dispatchers.IO)
+        byedpiProcesses = null
 
         if (::v2rayPoint.isInitialized) {
             v2rayPoint.close()

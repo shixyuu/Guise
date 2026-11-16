@@ -299,6 +299,26 @@
             app:key="byedpiArgs"
             app:title="@string/byedpi_args"
             app:useSimpleSummaryProvider="true" />
+        <SwitchPreference
+            app:icon="@drawable/ic_baseline_texture_24"
+            app:key="byedpiPreLayer"
+            app:summary="@string/byedpi_pre_layer_sum"
+            app:title="@string/byedpi_pre_layer" />
+        <SwitchPreference
+            app:icon="@drawable/ic_baseline_speed_24"
+            app:key="byedpiAuto"
+            app:summary="@string/byedpi_auto_sum"
+            app:title="@string/byedpi_auto" />
+        <EditTextPreference
+            app:defaultValue="60"
+            app:icon="@drawable/ic_baseline_speed_24"
+            app:key="byedpiAutoInterval"
+            app:title="@string/byedpi_auto_interval"
+            app:useSimpleSummaryProvider="true" />
+        <Preference
+            app:icon="@drawable/ic_baseline_speed_24"
+            app:key="byedpiAutoStatus"
+            app:title="@string/byedpi_auto_status" />
         <io.nekohasekai.sagernet.widget.NonBlackEditTextPreference
             app:dialogMessage="@string/byedpi_dns_message"
             app:icon="@drawable/ic_action_dns"

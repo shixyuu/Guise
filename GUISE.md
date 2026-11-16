@@ -281,6 +281,77 @@ disappears die with it; new connections go to the remaining network. Mobile data
 
 **Packet aggregation** (bonding one connection over both links): placeholder, not implemented.
 
+## ByeDPI in front of TCP proxies (guise.9)
+
+Setting: ByeDPI → "ByeDPI in front of TCP proxies" (`byedpiPreLayer`, default off).
+
+- When on, ConfigBuilder starts ByeDPI (even if direct mode is off) and gives every outbound that
+  reaches its server over TCP `proxySettings = {tag: "byedpi", transportLayer: true}`. The server
+  connection is then made by ByeDPI, which desyncs the first packets (TLS ClientHello / REALITY /
+  the protocol header) on the way to the proxy server.
+- Covered protocols: Shadowsocks, VMess, VLESS, Trojan, AnyTLS, HTTP, SOCKS, SSH, Snell, mieru (TCP),
+  TrustTunnel (non-QUIC). Transports: tcp/raw, TLS, REALITY, ws, grpc, httpupgrade, xhttp/splithttp
+  (h1/h2), meek.
+- Not covered: Hysteria2, TUIC, Juicity, WireGuard, mKCP, QUIC, xhttp with ALPN h3, mieru UDP,
+  TrustTunnel QUIC, and plugin profiles that run an external process (Naive etc.).
+- Chains: only the hop that faces the network goes through ByeDPI; inner hops already dial through
+  the previous outbound.
+- The `byedpi` socks outbound uses `domainStrategy: UseIPv4`, so the core resolves the server name and
+  ByeDPI receives an IP. ByeDPI's sockets are protected with protect_path as before.
+- Limitations:
+  - Shadowsocks / VMess have no SNI; desync only reshuffles the first bytes and rarely matters there.
+  - URL tests (latency tests) don't use the pre-layer.
+  - Dual network: ByeDPI's sockets are pinned to the single network, so TCP proxies don't split while
+    the pre-layer is on. UDP proxies still split.
+  - Verified on the box: VLESS (tcp) and Trojan (TLS) through host ciadpi `-d1 -r1+s`; ByeDPI logged
+    `new conn ... addr=<server>` + `split ... DESYNC_DISORDER` and both requests succeeded.
+
+## ByeDPI automatic strategy selection (guise.9)
+
+Settings: "Auto-select strategy" (`byedpiAuto`, default off), "Re-test interval (minutes)"
+(`byedpiAutoInterval`, default 60, 10–1440), "Auto-selection status" (tap for the pool).
+
+- Runs in the service process while Guise is connected and ByeDPI is running (direct mode,
+  ByeDPI-only profile or pre-layer). Code: `byedpi/ByeDPIAuto.kt` (pure logic, unit-tested) and
+  `byedpi/ByeDPIAutoStrategy.kt`.
+- Full test: all strategies of the connectivity test (built-in 59 or your edited list) plus the current
+  arguments, against the targets selected on the connectivity-test page. The best 12 (success rate,
+  then median latency; zero-success rows dropped) become the pool and the best one is applied.
+- Every interval the pool (plus the current arguments) is re-tested. A full test is run instead when
+  the pool has fewer than 3 entries, its best entry is below 50 %, or the last full test is older
+  than 24 h.
+- Every 5 minutes a 1-request health check of the current arguments runs. If it fails, the pool is
+  re-tested and the best working entry is applied at once; if none works, a full test runs.
+- A switch only happens to a strictly better success rate, or the same rate with < 80 % latency.
+- Applying = write `byedpiArgs`, stop the ByeDPI process and start it again on the same port. Open
+  connections through ByeDPI are cut at that moment.
+- Tests use the same runner as the connectivity test: throw-away ByeDPI processes, DoH resolution,
+  protected sockets (outside the VPN).
+- Limitation: candidates are tested against the target sites, not by a TLS handshake to your proxy
+  server, so for the pre-layer the ranking is a proxy for "which desync gets through here".
+
+## Setting descriptions (long form)
+
+UI texts were cut to one line in guise.9; the details live here.
+
+- ByeDPI arguments: raw ciadpi options; `--ip`, `--port`, `--protect-path` are managed by Guise.
+- ByeDPI domains: `example.com` matches the domain and subdomains; `full:`, `regexp:`, `geosite:` work.
+- DNS for ByeDPI: used for names that go through ByeDPI (ByeDPI-only profile, "selected domains",
+  "all direct traffic" with route mode Direct). Prefer DoH to IP addresses, e.g.
+  `https://1.1.1.1/dns-query`. "Send ByeDPI DNS through ByeDPI" helps when the DoH server itself is
+  filtered.
+- Connectivity test: one temporary ByeDPI per strategy, small requests to the selected targets over
+  the phone's current network. Pick SNI-blocked sites (X, Twitch); IP blocks can't be fixed by desync.
+  Testing through a proxy node is not supported. "Resolve with DNS for ByeDPI" uses the same DoH
+  servers and route, falling back to system DNS.
+- Dual network: only splits with a remote proxy profile; with the ByeDPI-only profile traffic stays on
+  one network. Uses mobile data on Wi-Fi and more battery. "Sample every N KB" (default 256) is the
+  passive TCP_INFO trigger; "UDP probe interval" (default 10 s, 0 = off) is the minimum gap between
+  QUIC version-negotiation / TCP-connect probes for UDP profiles.
+- Hysteria2 "Disable loss compensation": only with an upload speed set (Brutal). Brutal normally
+  sends up to 1.25× the set rate (1/ackRate, ackRate floored at 0.8); with this on it sends exactly
+  the set rate.
+
 ## Third-party code reused
 - hufrea/byedpi (MIT) — submodule `library/byedpi`, notice added to `assets/license/notices.txt`.
 - romanvht/ByeByeDPI (GPL-3.0, compatible): `shellSplit` (utility/ArgumentsUtils.kt, itself from a public gist),
