@@ -25,6 +25,7 @@ import com.android.build.api.variant.impl.VariantOutputImpl
 import org.apache.tools.ant.filters.StringInputStream
 import org.gradle.api.JavaVersion
 import org.gradle.api.Project
+import org.gradle.api.tasks.Exec
 import org.gradle.kotlin.dsl.getByType
 import java.io.File
 import java.util.Properties
@@ -252,8 +253,24 @@ fun Project.setupApp() {
             }
         }
     }
+    // Guise: cross-compile bundled ByeDPI (library/byedpi submodule) into src/main/jniLibs
+    val byedpiAbis = listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+    val buildByeDPI = tasks.register("buildByeDPI", Exec::class.java) {
+        group = "build"
+        description = "Cross-compile ByeDPI with the Android NDK (bin/lib/byedpi.sh)"
+        workingDir = rootProject.projectDir
+        commandLine("bash", "bin/lib/byedpi.sh")
+        val sdkDir = requireLocalProperties().getProperty("sdk.dir")
+        if (System.getenv("ANDROID_HOME").isNullOrEmpty() && !sdkDir.isNullOrEmpty()) {
+            environment("ANDROID_HOME", sdkDir)
+        }
+        inputs.file(rootProject.file("bin/lib/byedpi.sh"))
+        inputs.files(rootProject.fileTree("library/byedpi") { include("*.c", "*.h") })
+        outputs.files(byedpiAbis.map { file("src/main/jniLibs/$it/libbyedpi.so") })
+    }
     tasks.configureEach {
         if (name.contains("preBuild")) {
+            dependsOn(buildByeDPI)
             dependsOn(":app:exportLibraryDefinitionsOssRelease")
             dependsOn(":app:exportLibraryDefinitionsLegacyRelease")
         }

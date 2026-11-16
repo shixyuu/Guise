@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      - name: Checkout ByeDPI submodule
+        run: git submodule update --init library/byedpi
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
@@ -53,6 +55,8 @@ jobs:
           path: ~/.gradle
           key: gradle-debug-${{ hashFiles('**/*.gradle.kts') }}
       - name: Gradle Build
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           ./gradlew :app:downloadAssets
