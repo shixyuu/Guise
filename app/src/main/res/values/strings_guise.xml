@@ -65,4 +65,18 @@
     <string name="byedpi_dns_message">Encrypted DNS used for names that go through ByeDPI (ByeDPI-only profile, \"selected domains\", and \"all direct traffic\" with route mode Direct), so blocked sites resolve to real addresses instead of poisoned ones. One per line. Prefer DoH to IP addresses, e.g. https://1.1.1.1/dns-query</string>
     <string name="byedpi_dns_via_byedpi">Send ByeDPI DNS through ByeDPI</string>
     <string name="byedpi_dns_via_byedpi_sum">Route the DoH queries above through ByeDPI (helps when the DoH server itself is filtered). Off: connect directly</string>
+    <string name="dual_net_settings">Dual network (Wi-Fi + mobile data)</string>
+    <string name="dual_net_enable">Split connections across Wi-Fi and mobile data</string>
+    <string name="dual_net_enable_sum">Keeps mobile data connected while on Wi-Fi and spreads new connections to the proxy server over both. Only works with a remote proxy profile (SS, VMess, VLESS, Trojan, Hysteria2…); with the ByeDPI-only profile traffic stays on one network. Uses mobile data even on Wi-Fi and drains more battery.</string>
+    <string name="dual_net_strategy">Balancing</string>
+    <string name="dual_net_strategy_fixed">1:1 (alternate per connection)</string>
+    <string name="dual_net_strategy_auto">Auto (latency / jitter)</string>
+    <string name="dual_net_probe_interval">Probe interval (seconds, auto mode)</string>
+    <string name="dual_net_single">Single network for ByeDPI / direct traffic</string>
+    <string name="dual_net_single_wifi">Wi-Fi (system default network)</string>
+    <string name="dual_net_single_cellular">Mobile data</string>
+    <string name="dual_net_status">Status</string>
+    <string name="dual_net_status_idle">Not running (start Guise with this option on)</string>
+    <string name="dual_net_status_split">Splitting proxy connections</string>
+    <string name="dual_net_status_single">Single network (ByeDPI / direct profile)</string>
 </resources>

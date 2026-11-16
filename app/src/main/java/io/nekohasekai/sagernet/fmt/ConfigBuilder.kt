@@ -20,6 +20,7 @@
 package io.nekohasekai.sagernet.fmt
 
 import io.nekohasekai.sagernet.byedpi.ByeDPI
+import io.nekohasekai.sagernet.dualnet.DualNet
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -301,6 +302,12 @@ fun buildV2RayConfig(
     val byedpiReplacesRemoteDns = byedpiDnsPlan.active && byedpiDnsPlan.replaceRemoteDns
     val byedpiDnsDomains = byedpiDnsPlan.domains
     var hasDnsTagByedpi = false
+
+    // Guise: dual-network split. Only outbounds that dial a real remote proxy server are marked;
+    // never with the ByeDPI-only profile (its exit IP would be the phone's own, on two networks).
+    val dualNetSplit = !forTest && !forExport && DataStore.dualNetEnabled && proxies.none {
+        (it.requireBean() as? SOCKSBean)?.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
+    }
 
     val remoteDNS = if (byedpiReplacesRemoteDns) {
         byedpiDnsServers
@@ -2138,6 +2145,18 @@ fun buildV2RayConfig(
 
                     if (bean is ConfigBean && bean.type == "v2ray_outbound") {
                         currentOutbound = gson.fromJson(bean.content, OutboundObject::class.java).apply { init() }
+                    }
+
+                    if (dualNetSplit && currentOutbound.protocol !in setOf("freedom", "blackhole", "dns", "loopback") &&
+                        !(bean is SOCKSBean && bean.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS)
+                    ) {
+                        // Guise: let libexclavecore balance this outbound's server sockets across
+                        // Wi-Fi and cellular (the mark is consumed there, never set as SO_MARK)
+                        val stream = currentOutbound.streamSettings ?: StreamSettingsObject().also {
+                            currentOutbound.streamSettings = it
+                        }
+                        val sockopt = stream.sockopt ?: StreamSettingsObject.SockoptObject().also { stream.sockopt = it }
+                        sockopt.mark = DualNet.SPLIT_MARK
                     }
 
                     currentOutbound.tag = tagIn

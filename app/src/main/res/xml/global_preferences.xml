@@ -323,6 +323,41 @@
             app:title="@string/byedpi_probe" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="@string/dual_net_settings">
+        <SwitchPreference
+            app:icon="@drawable/baseline_wifi_lock_24"
+            app:key="dualNetEnabled"
+            app:summary="@string/dual_net_enable_sum"
+            app:title="@string/dual_net_enable" />
+        <io.nekohasekai.sagernet.widget.SimpleMenuPreference
+            app:defaultValue="0"
+            app:entries="@array/dual_net_strategy_entry"
+            app:entryValues="@array/dual_net_index_value"
+            app:icon="@drawable/baseline_wifi_lock_24"
+            app:key="dualNetStrategy"
+            app:title="@string/dual_net_strategy"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:defaultValue="15"
+            app:icon="@drawable/baseline_wifi_lock_24"
+            app:key="dualNetProbeInterval"
+            app:title="@string/dual_net_probe_interval"
+            app:useSimpleSummaryProvider="true" />
+        <io.nekohasekai.sagernet.widget.SimpleMenuPreference
+            app:defaultValue="0"
+            app:entries="@array/dual_net_single_entry"
+            app:entryValues="@array/dual_net_index_value"
+            app:icon="@drawable/baseline_wifi_lock_24"
+            app:key="dualNetSingleNetwork"
+            app:title="@string/dual_net_single"
+            app:useSimpleSummaryProvider="true" />
+        <Preference
+            app:icon="@drawable/baseline_wifi_lock_24"
+            app:key="dualNetStatus"
+            app:selectable="false"
+            app:title="@string/dual_net_status" />
+    </PreferenceCategory>
+
     <PreferenceCategory app:title="@string/cag_dns">
         <io.nekohasekai.sagernet.widget.NonBlackEditTextPreference
             app:defaultValue="tcp://1.1.1.1"

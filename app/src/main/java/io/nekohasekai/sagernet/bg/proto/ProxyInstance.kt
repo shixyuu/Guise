@@ -25,6 +25,10 @@ import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.TunImplementation
 import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.VpnService
+import io.nekohasekai.sagernet.byedpi.ByeDPI
+import io.nekohasekai.sagernet.dualnet.DualNetworkManager
+import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
+import libexclavecore.Libexclavecore
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.SagerDatabase
@@ -62,14 +66,47 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
         // (needIncludeSelf in VpnService), so byedpi must protect its sockets through the
         // protect_path server started by Libexclavecore.newTun2ray(). With gVisor the app UID is
         // excluded from the VPN (addDisallowedApplication) and no protection is needed.
-        return if (service is VpnService && DataStore.tunImplementation == TunImplementation.SYSTEM) {
+        // With dual-network on, VpnService also runs the protect_path server for gVisor so ByeDPI's
+        // sockets can be pinned to the chosen single network.
+        return if (service is VpnService &&
+            (DataStore.tunImplementation == TunImplementation.SYSTEM || DataStore.dualNetEnabled)
+        ) {
             SagerNet.deviceStorage.noBackupFilesDir.toString() + "/protect_path"
         } else {
             null
         }
     }
 
+    private var dualNetwork: DualNetworkManager? = null
+    private var guiseDialer = false
+
+    private fun startDualNetwork() {
+        if (!DataStore.dualNetEnabled) return
+        val bean = profile.requireBean()
+        val byedpiMain = bean is SOCKSBean && bean.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
+        val targets = if (!byedpiMain && profile.type != ProxyEntity.TYPE_CHAIN &&
+            profile.type != ProxyEntity.TYPE_BALANCER && profile.type != ProxyEntity.TYPE_CONFIG &&
+            !bean.serverAddress.isNullOrBlank() && (bean.serverPort ?: 0) > 0
+        ) listOf(bean.serverAddress to bean.serverPort!!) else emptyList()
+        val manager = DualNetworkManager(
+            DataStore.dualNetStrategy,
+            DataStore.dualNetSingleNetwork,
+            DataStore.dualNetProbeInterval,
+            !byedpiMain,
+            targets,
+        )
+        manager.start()
+        Libexclavecore.setSocketBinder(manager)
+        dualNetwork = manager
+        if (service !is VpnService) {
+            // plain proxy mode has no TUN dialer; install one so sockets reach the binder
+            v2rayPoint.withGuiseDialer()
+            guiseDialer = true
+        }
+    }
+
     override fun launch() {
+        startDualNetwork()
         super.launch()
 
         if (config.observerTag.isNotEmpty()) {
@@ -180,6 +217,16 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
 
         persistStats()
         super.close()
+
+        dualNetwork?.let {
+            Libexclavecore.setSocketBinder(null)
+            it.stop()
+            dualNetwork = null
+        }
+        if (guiseDialer) {
+            Libexclavecore.resetSystemDialer()
+            guiseDialer = false
+        }
 
         if (updateTimer.isInitialized()) updateTimer.value.cancel()
         if (::observatoryJob.isInitialized) observatoryJob.cancel()

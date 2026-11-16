@@ -64,4 +64,18 @@
     <string name="byedpi_dns_message">經由 ByeDPI 的網域（ByeDPI 無伺服器設定檔、「指定網域」模式，以及路由模式為直連時的「全部直連流量」）改用這裡的加密 DNS 解析，避免被汙染成假位址。每行一個，建議使用 IP 形式的 DoH，例如 https://1.1.1.1/dns-query</string>
     <string name="byedpi_dns_via_byedpi">ByeDPI 專用 DNS 經由 ByeDPI</string>
     <string name="byedpi_dns_via_byedpi_sum">上面的 DoH 查詢也經由 ByeDPI 送出（DoH 伺服器本身被干擾時有用）。關閉則直接連線</string>
+    <string name="dual_net_settings">雙網路（Wi-Fi + 行動數據）</string>
+    <string name="dual_net_enable">依連線分流到 Wi-Fi 和行動數據</string>
+    <string name="dual_net_enable_sum">連著 Wi-Fi 時保持行動數據在線，把到代理伺服器的新連線分配到兩個網路。僅在使用遠端代理設定檔（SS、VMess、VLESS、Trojan、Hysteria2 等）時生效；使用 ByeDPI（無伺服器）設定檔時只走一個網路。開啟後連著 Wi-Fi 也會消耗行動數據流量，並更耗電。</string>
+    <string name="dual_net_strategy">分流方式</string>
+    <string name="dual_net_strategy_fixed">1:1（每個連線輪流）</string>
+    <string name="dual_net_strategy_auto">自動（依延遲和抖動）</string>
+    <string name="dual_net_probe_interval">探測間隔（秒，自動模式）</string>
+    <string name="dual_net_single">ByeDPI / 直連流量使用的網路</string>
+    <string name="dual_net_single_wifi">Wi-Fi（系統預設網路）</string>
+    <string name="dual_net_single_cellular">行動數據</string>
+    <string name="dual_net_status">狀態</string>
+    <string name="dual_net_status_idle">未執行（開啟此選項後啟動 Guise）</string>
+    <string name="dual_net_status_split">正在分流代理連線</string>
+    <string name="dual_net_status_single">單一網路（ByeDPI / 直連設定檔）</string>
 </resources>

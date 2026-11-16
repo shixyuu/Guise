@@ -43,6 +43,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.*
 import io.nekohasekai.sagernet.Key.MODE_VPN
 import io.nekohasekai.sagernet.byedpi.ByeDPI
+import io.nekohasekai.sagernet.dualnet.DualNet
+import io.nekohasekai.sagernet.dualnet.DualNetworkManager
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProfileManager
 import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
@@ -406,6 +408,34 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             onPreferenceChangeListener = reloadListener
         }
         findPreference<SwitchPreference>(Key.BYEDPI_DNS_VIA_BYEDPI)!!.onPreferenceChangeListener = reloadListener
+        // Guise: dual-network split
+        val dualNetEnabled = findPreference<SwitchPreference>(Key.DUAL_NET_ENABLED)!!
+        val dualNetStrategy = findPreference<ListPreference>(Key.DUAL_NET_STRATEGY)!!
+        val dualNetInterval = findPreference<EditTextPreference>(Key.DUAL_NET_PROBE_INTERVAL)!!
+        val dualNetSingle = findPreference<ListPreference>(Key.DUAL_NET_SINGLE)!!
+        val dualNetStatus = findPreference<Preference>(Key.DUAL_NET_STATUS)!!
+        fun updateDualNetVisibility(enabled: Boolean, strategy: Int) {
+            dualNetStrategy.isVisible = enabled
+            dualNetInterval.isVisible = enabled && strategy == DualNet.Strategy.AUTO
+            dualNetSingle.isVisible = enabled
+            dualNetStatus.isVisible = enabled
+        }
+        dualNetEnabled.setOnPreferenceChangeListener { _, newValue ->
+            updateDualNetVisibility(newValue as Boolean, DataStore.dualNetStrategy)
+            needReload()
+            true
+        }
+        dualNetStrategy.setOnPreferenceChangeListener { _, newValue ->
+            updateDualNetVisibility(dualNetEnabled.isChecked, (newValue as String).toIntOrNull() ?: 0)
+            needReload()
+            true
+        }
+        dualNetInterval.setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
+        dualNetInterval.onPreferenceChangeListener = reloadListener
+        dualNetSingle.onPreferenceChangeListener = reloadListener
+        updateDualNetVisibility(dualNetEnabled.isChecked, DataStore.dualNetStrategy)
+        updateDualNetStatus()
+
         findPreference<Preference>(Key.BYEDPI_PROBE)!!.setOnPreferenceClickListener {
             startActivity(android.content.Intent(requireContext(), ByeDPIProbeActivity::class.java))
             true
@@ -679,12 +709,24 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
     }
 
 
+    private fun updateDualNetStatus() {
+        val pref = findPreference<Preference>(Key.DUAL_NET_STATUS) ?: return
+        val lines = runCatching { DualNetworkManager.statusFile.readLines() }.getOrNull()
+        pref.summary = if (lines == null || lines.size < 2) {
+            getString(R.string.dual_net_status_idle)
+        } else {
+            val mode = if (lines[0] == "split") R.string.dual_net_status_split else R.string.dual_net_status_single
+            getString(mode) + "\n" + lines[1]
+        }
+    }
+
     override fun onResume() {
         super.onResume()
 
         if (::isProxyApps.isInitialized) {
             isProxyApps.isChecked = DataStore.proxyApps
         }
+        updateDualNetStatus()
         // Guise: the connectivity test may have changed the ByeDPI arguments.
         findPreference<EditTextPreference>(Key.BYEDPI_ARGS)?.let {
             if (it.text != DataStore.byedpiArgs) it.text = DataStore.byedpiArgs

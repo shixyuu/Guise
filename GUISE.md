@@ -199,6 +199,41 @@ Entry points: Settings → ByeDPI → "Connectivity test", and a card on the mai
 - Possible later work: option B from the design (measure through a throw-away `V2RayTestInstance` so the result
   includes the core), HTTP-only sites, per-site breakdown.
 
+## Dual network: Wi-Fi + mobile data split (guise.6)
+Optional, **off by default**. Settings → 双网络（WiFi + 移动数据）.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `dualNetEnabled` | off | Keep cellular up next to Wi-Fi (`ConnectivityManager.requestNetwork`) and enable the feature |
+| `dualNetStrategy` | `0` = 1:1 | `0` alternate networks per new proxy-server connection; `1` auto (latency/jitter weighted) |
+| `dualNetProbeInterval` | 15 s | Auto mode: TCP-connect RTT probe to the proxy server over each network (clamped 5–300 s, window of 10 samples) |
+| `dualNetSingleNetwork` | `0` = Wi-Fi/default | Network used when not splitting (ByeDPI profile, direct traffic): `0` system default, `1` mobile data |
+| `dualNetStatus` | – | Read-only: last status line written by the service (`noBackupFilesDir/dualnet_status`) |
+
+**When it splits.** Only when the selected profile is a real remote proxy (SS/VMess/VLESS/Trojan/Hysteria2/…).
+`ConfigBuilder` puts sockopt `mark = 0x47554953` ("GUIS") on every outbound that dials a proxy server. The
+patched `libexclavecore` (`library/core/patches/libexclavecore-guise-dualnet.patch`) strips that mark (it is never
+set as SO_MARK) and, right after `VpnService.protect()`, hands the fd to the app's `SocketBinder`
+(`dualnet/DualNetworkManager.kt`), which calls `Network.bindSocket()` on Wi-Fi or LTE before `connect()`. With the
+ByeDPI-only profile nothing is split: ByeDPI (via `protect_path`, now also enabled for gVisor when the feature is on)
+and direct sockets are pinned to `dualNetSingleNetwork`. Loopback sockets (core → byedpi, plugins) are never touched.
+In proxy-only (non-VPN) mode a protected dialer without VPN protection (`WithGuiseDialer`) is installed so the hook
+still runs.
+
+**Balancer** (`dualnet/DualNet.kt`, unit-tested in `DualNetTest`): per network, score =
+(1−loss)² / (median RTT + 2·jitter + 10 ms); a network with 3 consecutive probe failures is dead (weight 0); a
+network without samples gets the average healthy score; if everything is dead the weights are equal. New
+connections are assigned by smooth weighted round-robin. Network loss/gain is handled by the
+`NetworkCallback`s: a lost network gets weight 0 immediately, a returning one rejoins. Log tag `Guise`,
+lines `dual-network: …` show active networks, weights and counters.
+
+**Limitations.** Splitting is per underlying connection: one mux / XUDP / Hysteria2 (QUIC) session stays on the
+network it was opened on. Chain, balancer and custom-config profiles get no auto probe target → equal weights.
+External plugin processes are not split. In proxy-only mode ByeDPI is not pinned. Sockets on a network that
+disappears die with it; new connections go to the remaining network. Mobile data is used even on Wi-Fi.
+
+**Packet aggregation** (bonding one connection over both links): placeholder, not implemented.
+
 ## Third-party code reused
 - hufrea/byedpi (MIT) — submodule `library/byedpi`, notice added to `assets/license/notices.txt`.
 - romanvht/ByeByeDPI (GPL-3.0, compatible): `shellSplit` (utility/ArgumentsUtils.kt, itself from a public gist),
