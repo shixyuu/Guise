@@ -28,6 +28,7 @@ import io.nekohasekai.sagernet.RootCAProvider
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.bg.AbstractInstance
 import io.nekohasekai.sagernet.bg.GuardedProcessPool
+import io.nekohasekai.sagernet.byedpi.ByeDPI
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.fmt.LOCALHOST
@@ -63,6 +64,26 @@ abstract class V2RayInstance(
 
     protected fun initPlugin(name: String): PluginManager.InitResult {
         return pluginPath.getOrPut(name) { PluginManager.init(name)!! }
+    }
+
+    /**
+     * Guise: unix socket path byedpi should send its outgoing sockets to for
+     * VpnService.protect(), or null when the app UID is not routed through the VPN.
+     */
+    protected open fun byedpiProtectPath(): String? = null
+
+    protected fun launchByeDPI() {
+        val port = config.byedpiPort
+        if (port <= 0) return
+        val executable = File(SagerNet.application.applicationInfo.nativeLibraryDir, ByeDPI.EXECUTABLE)
+        if (!executable.canExecute()) {
+            error("ByeDPI executable not found: ${executable.absolutePath}")
+        }
+        val commands = ByeDPI.buildCommand(
+            executable.absolutePath, port, DataStore.byedpiArgs, byedpiProtectPath()
+        )
+        Logs.d("ByeDPI: " + commands.joinToString(" "))
+        processes.start(commands)
     }
 
     protected open fun buildConfig() {
@@ -156,6 +177,7 @@ abstract class V2RayInstance(
                 }
             }
         }
+        launchByeDPI()
         v2rayPoint.start()
         if (config.requireWs) {
             val url = "http://" + joinHostPort(LOCALHOST, config.wsPort) + "/"

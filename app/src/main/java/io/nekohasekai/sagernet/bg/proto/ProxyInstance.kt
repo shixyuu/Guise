@@ -22,7 +22,9 @@ package io.nekohasekai.sagernet.bg.proto
 import com.github.exclavenetwork.exclave.core.app.observatory.OutboundStatus
 import io.nekohasekai.sagernet.LogLevel
 import io.nekohasekai.sagernet.SagerNet
+import io.nekohasekai.sagernet.TunImplementation
 import io.nekohasekai.sagernet.bg.BaseService
+import io.nekohasekai.sagernet.bg.VpnService
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.SagerDatabase
@@ -52,6 +54,18 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
                 val (_, content) = plugin
                 Logs.d(content)
             }
+        }
+    }
+
+    override fun byedpiProtectPath(): String? {
+        // Guise: with the "System" TUN stack the app itself is routed through the VPN
+        // (needIncludeSelf in VpnService), so byedpi must protect its sockets through the
+        // protect_path server started by Libexclavecore.newTun2ray(). With gVisor the app UID is
+        // excluded from the VPN (addDisallowedApplication) and no protection is needed.
+        return if (service is VpnService && DataStore.tunImplementation == TunImplementation.SYSTEM) {
+            SagerNet.deviceStorage.noBackupFilesDir.toString() + "/protect_path"
+        } else {
+            null
         }
     }
 

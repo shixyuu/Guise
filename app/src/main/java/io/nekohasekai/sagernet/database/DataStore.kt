@@ -21,6 +21,7 @@
 
 package io.nekohasekai.sagernet.database
 
+import io.nekohasekai.sagernet.byedpi.ByeDPI
 import android.content.Intent
 import android.os.Binder
 import android.os.Build
@@ -190,6 +191,12 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var queryAllPackagesAlternativeMethod by configurationStore.boolean(Key.QUERY_ALL_PACKAGES_ALTERNATIVE_METHOD)
 
     var enableFragment by configurationStore.boolean(Key.ENABLE_FRAGMENT)
+
+    // Guise: ByeDPI
+    var byedpiEnabled by configurationStore.boolean(Key.BYEDPI_ENABLED)
+    var byedpiMode by configurationStore.stringToInt(Key.BYEDPI_MODE) { ByeDPI.Mode.ALL_DIRECT }
+    var byedpiDomains by configurationStore.string(Key.BYEDPI_DOMAINS)
+    var byedpiArgs by configurationStore.stringNotBlack(Key.BYEDPI_ARGS) { ByeDPI.DEFAULT_ARGS }
     var enableFragmentForDirect by configurationStore.boolean(Key.ENABLE_FRAGMENT_FOR_DIRECT)
     var fragmentMethod by configurationStore.stringToInt(Key.FRAGMENT_METHOD)
     var realityDisableX25519Mlkem768 by configurationStore.boolean(Key.REALITY_DISABLE_X25519MLKEM768)

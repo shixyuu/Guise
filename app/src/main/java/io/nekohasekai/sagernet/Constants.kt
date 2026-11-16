@@ -121,6 +121,13 @@ object Key {
     const val QUERY_ALL_PACKAGES_ALTERNATIVE_METHOD = "queryAllPackagesAlternativeMethod"
 
     const val ENABLE_FRAGMENT = "enableFragment"
+
+    // Guise: ByeDPI
+    const val BYEDPI_ENABLED = "byedpiEnabled"
+    const val BYEDPI_MODE = "byedpiMode"
+    const val BYEDPI_DOMAINS = "byedpiDomains"
+    const val BYEDPI_ARGS = "byedpiArgs"
+    const val BYEDPI_CREATE_PROFILE = "byedpiCreateProfile"
     const val ENABLE_FRAGMENT_FOR_DIRECT = "enableFragmentForDirect"
     const val FRAGMENT_METHOD = "fragmentMethod"
     const val REALITY_DISABLE_X25519MLKEM768 = "realityDisableX25519Mlkem768"

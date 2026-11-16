@@ -19,6 +19,7 @@
 
 package io.nekohasekai.sagernet.fmt
 
+import io.nekohasekai.sagernet.byedpi.ByeDPI
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -162,6 +163,8 @@ class V2rayBuildResult(
     val dumpUID: Boolean,
     val alerts: List<Pair<Int, String>>,
     val useFakeDNS: Boolean,
+    // Guise: local SOCKS port of the ByeDPI process to launch, 0 = ByeDPI not needed
+    val byedpiPort: Int = 0,
 ) {
     data class IndexEntity(var isBalancer: Boolean, var chain: LinkedHashMap<Triple<Int, String, String>, ProxyEntity>)
 }
@@ -270,6 +273,14 @@ fun buildV2RayConfig(
 
     val allowAccess = DataStore.allowAccess
     val bind = if (!forTest && allowAccess) "0.0.0.0" else LOCALHOST
+
+    // Guise: ByeDPI. The global switch only applies to the running service, while a profile
+    // using the built-in ByeDPI placeholder address also needs ByeDPI in URL tests.
+    val byedpiGlobal = !forTest && !forExport && DataStore.byedpiEnabled
+    val byedpiProfileInUse = !forExport && (proxies + extraProxies.values.flatten()).any {
+        (it.requireBean() as? SOCKSBean)?.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
+    }
+    val byedpiPort = if (byedpiGlobal || byedpiProfileInUse) mkPort() else 0
 
     var directDNS = DataStore.directDns.listByLineOrComma().filter { !it.startsWith("#") }
     if (DataStore.useLocalDnsAsDirectDns) directDNS = listOf("localhost")
@@ -792,8 +803,14 @@ fun buildV2RayConfig(
                                     settings = LazyOutboundConfigurationObject(this,
                                         SocksOutboundConfigurationObject().apply {
                                             servers = listOf(SocksOutboundConfigurationObject.ServerObject().apply {
-                                                address = bean.serverAddress
-                                                port = bean.serverPort
+                                                if (bean.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS && byedpiPort > 0) {
+                                                    // Guise: built-in ByeDPI profile -> local ByeDPI process
+                                                    address = LOCALHOST
+                                                    port = byedpiPort
+                                                } else {
+                                                    address = bean.serverAddress
+                                                    port = bean.serverPort
+                                                }
                                                 if ((bean.username.isNotEmpty() || bean.password.isNotEmpty()) && bean.protocol == SOCKSBean.PROTOCOL_SOCKS5) {
                                                     users = listOf(SocksOutboundConfigurationObject.ServerObject.UserObject().apply {
                                                         user = bean.username
@@ -2536,6 +2553,23 @@ fun buildV2RayConfig(
             }
         })
 
+        if (byedpiGlobal) {
+            // Guise: ByeDPI local SOCKS5 server (process started by V2RayInstance.launch)
+            outbounds.add(OutboundObject().apply {
+                tag = ByeDPI.TAG_BYEDPI
+                protocol = "socks"
+                settings = LazyOutboundConfigurationObject(this,
+                    SocksOutboundConfigurationObject().apply {
+                        servers = listOf(SocksOutboundConfigurationObject.ServerObject().apply {
+                            address = LOCALHOST
+                            port = byedpiPort
+                        })
+                        version = "5"
+                    }
+                )
+            })
+        }
+
         outbounds.add(OutboundObject().apply {
             tag = TAG_BLOCK
             protocol = "blackhole"
@@ -2876,6 +2910,33 @@ fun buildV2RayConfig(
             })
         }
 
+        if (byedpiGlobal) {
+            when (DataStore.byedpiMode) {
+                ByeDPI.Mode.DOMAINS -> {
+                    val byedpiDomains = ByeDPI.parseDomains(DataStore.byedpiDomains)
+                    if (byedpiDomains.isNotEmpty()) {
+                        // placed before user rules and the "direct" route mode catch-all
+                        routing.rules.add(0, RoutingObject.RuleObject().apply {
+                            type = "field"
+                            domains = byedpiDomains
+                            outboundTag = ByeDPI.TAG_BYEDPI
+                        })
+                    }
+                }
+                else -> {
+                    // everything that would leave "direct" (bypass rules, direct route mode)
+                    // goes through ByeDPI instead; DNS-internal and LAN rules are left alone
+                    routing.rules.forEach { rule ->
+                        if (rule.outboundTag == TAG_BYPASS && rule.inboundTag.isNullOrEmpty() &&
+                            rule.ip?.contains("geoip:private") != true
+                        ) {
+                            rule.outboundTag = ByeDPI.TAG_BYEDPI
+                        }
+                    }
+                }
+            }
+        }
+
         if (hasDnsTagDirect) {
             routing.rules.add(0, RoutingObject.RuleObject().apply {
                 type = "field"
@@ -2921,6 +2982,7 @@ fun buildV2RayConfig(
             shouldDumpUID,
             alerts,
             DataStore.enableFakeDns,
+            byedpiPort,
         )
     }
 

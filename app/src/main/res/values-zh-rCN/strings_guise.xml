@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="byedpi_settings">ByeDPI</string>
+    <string name="byedpi_enable">启用 ByeDPI 直连模式</string>
+    <string name="byedpi_enable_sum">让直连流量经过内置的 ByeDPI（本地对抗 DPI，无需服务器）</string>
+    <string name="byedpi_mode">ByeDPI 作用范围</string>
+    <string name="byedpi_mode_all_direct">所有直连流量</string>
+    <string name="byedpi_mode_domains">仅指定域名</string>
+    <string name="byedpi_domains">ByeDPI 域名列表</string>
+    <string name="byedpi_domains_message">每行一个。“example.com”匹配该域名及其子域名；也支持 V2Ray 语法，如 “full:”、“regexp:”、“geosite:”。</string>
+    <string name="byedpi_args">ByeDPI 参数</string>
+    <string name="byedpi_args_message">原始 byedpi（ciadpi）命令行参数。--ip、--port 和 --protect-path 由 Guise 自动管理。留空即恢复默认值：-o1 -a1 -r-5+se</string>
+    <string name="byedpi_create_profile">添加仅 ByeDPI 配置</string>
+    <string name="byedpi_create_profile_sum">创建一个把所有代理流量交给 ByeDPI 的配置，无需代理服务器即可使用 Guise</string>
+    <string name="byedpi_profile_name">ByeDPI（无服务器）</string>
+    <string name="byedpi_profile_created">已在当前分组添加 ByeDPI 配置</string>
+</resources>

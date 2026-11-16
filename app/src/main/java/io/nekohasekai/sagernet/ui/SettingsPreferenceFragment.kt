@@ -42,7 +42,10 @@ import androidx.preference.SwitchPreference
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.*
 import io.nekohasekai.sagernet.Key.MODE_VPN
+import io.nekohasekai.sagernet.byedpi.ByeDPI
 import io.nekohasekai.sagernet.database.DataStore
+import io.nekohasekai.sagernet.database.ProfileManager
+import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
 import io.nekohasekai.sagernet.database.preference.EditTextPreferenceModifiers
 import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.ui.profile.ProfileSettingsActivity
@@ -370,6 +373,43 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         }
         enableFragmentForDirect.isVisible = enableFragment.isChecked
         fragmentMethod.isVisible = enableFragment.isChecked
+
+        // Guise: ByeDPI
+        val byedpiEnabled = findPreference<SwitchPreference>(Key.BYEDPI_ENABLED)!!
+        val byedpiMode = findPreference<ListPreference>(Key.BYEDPI_MODE)!!
+        val byedpiDomains = findPreference<EditTextPreference>(Key.BYEDPI_DOMAINS)!!
+        val byedpiArgs = findPreference<EditTextPreference>(Key.BYEDPI_ARGS)!!
+        fun updateByeDPIVisibility(enabled: Boolean, mode: Int) {
+            byedpiMode.isVisible = enabled
+            byedpiDomains.isVisible = enabled && mode == ByeDPI.Mode.DOMAINS
+        }
+        byedpiEnabled.setOnPreferenceChangeListener { _, newValue ->
+            updateByeDPIVisibility(newValue as Boolean, DataStore.byedpiMode)
+            needReload()
+            true
+        }
+        byedpiMode.setOnPreferenceChangeListener { _, newValue ->
+            updateByeDPIVisibility(byedpiEnabled.isChecked, (newValue as String).toIntOrNull() ?: 0)
+            needReload()
+            true
+        }
+        updateByeDPIVisibility(byedpiEnabled.isChecked, DataStore.byedpiMode)
+        byedpiDomains.setOnBindEditTextListener(EditTextPreferenceModifiers.Hosts)
+        byedpiDomains.onPreferenceChangeListener = reloadListener
+        byedpiArgs.onPreferenceChangeListener = reloadListener
+        findPreference<Preference>(Key.BYEDPI_CREATE_PROFILE)!!.setOnPreferenceClickListener {
+            runOnDefaultDispatcher {
+                ProfileManager.createProfile(DataStore.currentGroupId(), SOCKSBean().apply {
+                    name = getString(R.string.byedpi_profile_name)
+                    serverAddress = ByeDPI.PROFILE_MARKER_ADDRESS
+                    serverPort = 1080
+                })
+                onMainDispatcher {
+                    snackbar(R.string.byedpi_profile_created).show()
+                }
+            }
+            true
+        }
 
         // DNS settings
         findPreference<EditTextPreference>(Key.REMOTE_DNS)!!.onPreferenceChangeListener = reloadListener

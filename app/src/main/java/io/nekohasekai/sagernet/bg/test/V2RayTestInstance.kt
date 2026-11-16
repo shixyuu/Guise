@@ -50,7 +50,7 @@ class V2RayTestInstance(profile: ProxyEntity, val link: String, val timeout: Int
                 try {
                     init()
                     launch()
-                    if (pluginConfigs.isNotEmpty()) {
+                    if (pluginConfigs.isNotEmpty() || config.byedpiPort > 0) {
                         delay(500L)
                     }
                     c.tryResume(Libexclavecore.urlTest(v2rayPoint, "", link, timeout))
@@ -60,6 +60,8 @@ class V2RayTestInstance(profile: ProxyEntity, val link: String, val timeout: Int
             }
         }
     }
+
+    override fun byedpiProtectPath(): String? = protectPath.ifEmpty { null }
 
     @Volatile
     override var underlyingNetwork: Network? = null

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="byedpi_mode_entry">
+        <item>@string/byedpi_mode_all_direct</item>
+        <item>@string/byedpi_mode_domains</item>
+    </string-array>
+    <string-array name="byedpi_mode_value" translatable="false">
+        <item>0</item>
+        <item>1</item>
+    </string-array>
+</resources>

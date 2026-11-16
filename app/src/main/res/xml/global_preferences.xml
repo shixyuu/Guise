@@ -272,6 +272,40 @@
             app:title="@string/insecure_warn" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="@string/byedpi_settings">
+        <SwitchPreference
+            app:icon="@drawable/ic_baseline_texture_24"
+            app:key="byedpiEnabled"
+            app:summary="@string/byedpi_enable_sum"
+            app:title="@string/byedpi_enable" />
+        <io.nekohasekai.sagernet.widget.SimpleMenuPreference
+            app:defaultValue="0"
+            app:entries="@array/byedpi_mode_entry"
+            app:entryValues="@array/byedpi_mode_value"
+            app:icon="@drawable/ic_baseline_texture_24"
+            app:key="byedpiMode"
+            app:title="@string/byedpi_mode"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:dialogMessage="@string/byedpi_domains_message"
+            app:icon="@drawable/ic_baseline_texture_24"
+            app:key="byedpiDomains"
+            app:title="@string/byedpi_domains"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:defaultValue="-o1 -a1 -r-5+se"
+            app:dialogMessage="@string/byedpi_args_message"
+            app:icon="@drawable/ic_baseline_texture_24"
+            app:key="byedpiArgs"
+            app:title="@string/byedpi_args"
+            app:useSimpleSummaryProvider="true" />
+        <Preference
+            app:icon="@drawable/ic_action_note_add"
+            app:key="byedpiCreateProfile"
+            app:summary="@string/byedpi_create_profile_sum"
+            app:title="@string/byedpi_create_profile" />
+    </PreferenceCategory>
+
     <PreferenceCategory app:title="@string/cag_dns">
         <io.nekohasekai.sagernet.widget.NonBlackEditTextPreference
             app:defaultValue="tcp://1.1.1.1"
