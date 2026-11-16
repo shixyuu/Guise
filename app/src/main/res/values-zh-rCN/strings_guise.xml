@@ -69,8 +69,9 @@
     <string name="dual_net_enable_sum">连着 WiFi 时保持移动数据在线，把到代理服务器的新连接分配到两个网络。仅在使用远程代理配置（SS、VMess、VLESS、Trojan、Hysteria2 等）时生效；使用 ByeDPI（无服务器）配置时只走一个网络。开启后连着 WiFi 也会消耗移动数据流量，并更耗电。</string>
     <string name="dual_net_strategy">分流方式</string>
     <string name="dual_net_strategy_fixed">1:1（每个连接轮流）</string>
-    <string name="dual_net_strategy_auto">自动（按延迟和抖动）</string>
-    <string name="dual_net_probe_interval">探测间隔（秒，自动模式）</string>
+    <string name="dual_net_strategy_auto">自动（按真实连接的延迟和抖动）</string>
+    <string name="dual_net_sample_kb">采样触发流量（KB，自动模式）</string>
+    <string name="dual_net_sample_kb_sum">自动模式直接测量正在使用的代理连接（内核记录的延迟、抖动、重传），不额外发探测包。每个网络每发送这么多数据采一次样，没有流量就不采样。默认 256。</string>
     <string name="dual_net_single">ByeDPI / 直连流量使用的网络</string>
     <string name="dual_net_single_wifi">WiFi（系统默认网络）</string>
     <string name="dual_net_single_cellular">移动数据</string>

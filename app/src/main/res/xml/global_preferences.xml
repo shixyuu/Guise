@@ -338,11 +338,10 @@
             app:title="@string/dual_net_strategy"
             app:useSimpleSummaryProvider="true" />
         <EditTextPreference
-            app:defaultValue="15"
+            app:defaultValue="256"
             app:icon="@drawable/baseline_wifi_lock_24"
-            app:key="dualNetProbeInterval"
-            app:title="@string/dual_net_probe_interval"
-            app:useSimpleSummaryProvider="true" />
+            app:key="dualNetSampleKb"
+            app:title="@string/dual_net_sample_kb"/>
         <io.nekohasekai.sagernet.widget.SimpleMenuPreference
             app:defaultValue="0"
             app:entries="@array/dual_net_single_entry"

@@ -70,8 +70,9 @@
     <string name="dual_net_enable_sum">Keeps mobile data connected while on Wi-Fi and spreads new connections to the proxy server over both. Only works with a remote proxy profile (SS, VMess, VLESS, Trojan, Hysteria2…); with the ByeDPI-only profile traffic stays on one network. Uses mobile data even on Wi-Fi and drains more battery.</string>
     <string name="dual_net_strategy">Balancing</string>
     <string name="dual_net_strategy_fixed">1:1 (alternate per connection)</string>
-    <string name="dual_net_strategy_auto">Auto (latency / jitter)</string>
-    <string name="dual_net_probe_interval">Probe interval (seconds, auto mode)</string>
+    <string name="dual_net_strategy_auto">Auto (latency / jitter of live connections)</string>
+    <string name="dual_net_sample_kb">Sample every N KB sent per network (auto mode)</string>
+    <string name="dual_net_sample_kb_sum">Auto mode measures the real proxy connections (kernel RTT, jitter, retransmissions) — no extra probe traffic. One sample is taken every time this much has been sent over a network; no traffic, no sampling. Default 256.</string>
     <string name="dual_net_single">Single network for ByeDPI / direct traffic</string>
     <string name="dual_net_single_wifi">Wi-Fi (system default network)</string>
     <string name="dual_net_single_cellular">Mobile data</string>

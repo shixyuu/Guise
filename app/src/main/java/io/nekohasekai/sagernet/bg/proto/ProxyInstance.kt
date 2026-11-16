@@ -84,19 +84,15 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
         if (!DataStore.dualNetEnabled) return
         val bean = profile.requireBean()
         val byedpiMain = bean is SOCKSBean && bean.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
-        val targets = if (!byedpiMain && profile.type != ProxyEntity.TYPE_CHAIN &&
-            profile.type != ProxyEntity.TYPE_BALANCER && profile.type != ProxyEntity.TYPE_CONFIG &&
-            !bean.serverAddress.isNullOrBlank() && (bean.serverPort ?: 0) > 0
-        ) listOf(bean.serverAddress to bean.serverPort!!) else emptyList()
         val manager = DualNetworkManager(
             DataStore.dualNetStrategy,
             DataStore.dualNetSingleNetwork,
-            DataStore.dualNetProbeInterval,
+            DataStore.dualNetSampleKb,
             !byedpiMain,
-            targets,
         )
         manager.start()
         Libexclavecore.setSocketBinder(manager)
+        Libexclavecore.setDualNetSampleBytes(manager.sampleBytes)
         dualNetwork = manager
         if (service !is VpnService) {
             // plain proxy mode has no TUN dialer; install one so sockets reach the binder
@@ -219,6 +215,7 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
         super.close()
 
         dualNetwork?.let {
+            Libexclavecore.setDualNetSampleBytes(0)
             Libexclavecore.setSocketBinder(null)
             it.stop()
             dualNetwork = null

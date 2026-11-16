@@ -26,7 +26,7 @@ class DualNetTest {
         assertEquals(30.0, s.latency!!, 0.001) // median of 30,20,40
         assertEquals(15.0, s.jitter, 0.001) // |30-20|, |20-40|
         assertEquals(0.25, s.loss, 0.001)
-        s.add(null); s.add(null); s.add(null)
+        repeat(3) { s.add(null as Long?) }
         assertTrue(s.dead)
         s.add(25)
         assertEquals(0, s.consecutiveFailures)
@@ -65,6 +65,39 @@ class DualNetTest {
         val fresh = DualNet.weights(listOf("WiFi", "LTE"), mapOf("WiFi" to stats(30, 30)))
         assertEquals(0.5, fresh["LTE"]!!, 1e-9)
         assertTrue(DualNet.weights(emptyList(), emptyMap()).isEmpty())
+    }
+
+    @Test
+    fun passiveSamplesUseKernelJitterAndRetransmits() {
+        val s = DualNet.LinkStats()
+        s.add(DualNet.Sample(40.0, 5.0, 0.0))
+        s.add(DualNet.Sample(60.0, 15.0, 0.1))
+        s.add(DualNet.Sample(50.0, null, 0.0)) // connect() handshake sample, no rttvar
+        assertEquals(50.0, s.latency!!, 1e-9)
+        assertEquals(10.0, s.jitter, 1e-9) // median of kernel rttvar 5, 15
+        assertEquals(0.1 / 3, s.loss, 1e-9)
+        // lossy, jittery LTE vs clean Wi-Fi with similar RTT
+        val wifi = DualNet.LinkStats().apply { repeat(5) { add(DualNet.Sample(50.0, 4.0, 0.0)) } }
+        val lte = DualNet.LinkStats().apply { repeat(5) { add(DualNet.Sample(50.0, 30.0, 0.2)) } }
+        val w = DualNet.weights(listOf("WiFi", "LTE"), mapOf("WiFi" to wifi, "LTE" to lte))
+        assertTrue("$w", w["WiFi"]!! > 0.7)
+    }
+
+    @Test
+    fun deadNetworkIsRetriedLater() {
+        val lte = DualNet.LinkStats()
+        repeat(3) { lte.add(null as DualNet.Sample?, now = 1_000) }
+        val wifi = stats(30, 30)
+        val map = mapOf("WiFi" to wifi, "LTE" to lte)
+        assertEquals(0.0, DualNet.weights(listOf("WiFi", "LTE"), map, now = 1_000 + 29_000)["LTE"]!!, 1e-9)
+        // after DEAD_RETRY_MS: exploration share (same as an unmeasured network)
+        assertEquals(0.5, DualNet.weights(listOf("WiFi", "LTE"), map, now = 1_000 + 30_000)["LTE"]!!, 1e-9)
+        // fails again -> back to 0 for another 30 s
+        lte.add(null as DualNet.Sample?, now = 40_000)
+        assertEquals(0.0, DualNet.weights(listOf("WiFi", "LTE"), map, now = 60_000)["LTE"]!!, 1e-9)
+        // a success revives it
+        lte.add(DualNet.Sample(35.0, 3.0, 0.0), now = 61_000)
+        assertTrue(DualNet.weights(listOf("WiFi", "LTE"), map, now = 61_000)["LTE"]!! > 0.0)
     }
 
     @Test

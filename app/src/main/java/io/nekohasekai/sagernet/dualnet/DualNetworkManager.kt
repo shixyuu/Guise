@@ -26,23 +26,8 @@ import android.net.NetworkRequest
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import io.nekohasekai.sagernet.SagerNet
-import io.nekohasekai.sagernet.database.DataStore
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import libexclavecore.SocketBinder
 import java.io.File
-import java.net.Inet4Address
-import java.net.InetAddress
-import java.net.InetSocketAddress
-import java.net.ConnectException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -52,16 +37,17 @@ import java.util.concurrent.atomic.AtomicLong
  * Keeps both a Wi-Fi and a cellular network requested (so Android keeps LTE up while Wi-Fi is
  * connected) and is installed as libexclavecore's SocketBinder:
  *  - sockets of outbounds that dial a remote proxy server (marked by ConfigBuilder) are bound
- *    to Wi-Fi or cellular by the balancer (1:1 or latency/jitter weighted);
+ *    to Wi-Fi or cellular by the balancer (1:1, or weighted by latency/jitter/loss measured
+ *    passively on those live connections: libexclavecore reads their TCP_INFO once every
+ *    [sampleKb] KB sent per network and calls [reportSample]; no probe traffic is sent);
  *  - every other socket (direct, DNS, ByeDPI via protect_path) stays on one network: the
  *    default network, or cellular when "single network = mobile data".
  */
 class DualNetworkManager(
     private val strategy: Int,
     private val singleNetwork: Int,
-    private val probeIntervalSeconds: Int,
+    private val sampleKb: Int,
     private val splitAllowed: Boolean,
-    private val probeTargets: List<Pair<String, Int>>,
 ) : SocketBinder {
 
     companion object {
@@ -82,8 +68,17 @@ class DualNetworkManager(
     @Volatile
     private var weights: Map<String, Double> = emptyMap()
     private val callbacks = mutableListOf<ConnectivityManager.NetworkCallback>()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var probeJob: Job? = null
+    private val samplesSeen = ConcurrentHashMap<String, AtomicLong>()
+    @Volatile
+    private var lastStatusWrite = 0L
+    @Volatile
+    private var lastLog = 0L
+
+    /** Byte threshold handed to libexclavecore; 0 = no passive sampling (1:1 or single). */
+    val sampleBytes: Long
+        get() = if (splitAllowed && strategy == DualNet.Strategy.AUTO) {
+            sampleKb.coerceIn(DualNet.MIN_SAMPLE_KB, DualNet.MAX_SAMPLE_KB) * 1024L
+        } else 0L
 
     private fun callback(label: String) = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -95,6 +90,7 @@ class DualNetworkManager(
         override fun onLost(network: Network) {
             if (networks[label] == network) networks.remove(label)
             stats.remove(label)
+            samplesSeen.remove(label)
             Log.i(TAG, "dual-network: $label lost")
             recompute()
         }
@@ -121,17 +117,13 @@ class DualNetworkManager(
         Log.i(
             TAG, "dual-network: started, split=${if (splitAllowed) "on" else "off (ByeDPI/direct profile)"}, " +
                     "strategy=${if (strategy == DualNet.Strategy.AUTO) "auto" else "1:1"}, " +
-                    "single=${if (singleNetwork == DualNet.Single.CELLULAR) CELLULAR else WIFI}"
+                    "single=${if (singleNetwork == DualNet.Single.CELLULAR) CELLULAR else WIFI}" +
+                    (if (sampleBytes > 0) ", sample every ${sampleBytes / 1024} KB sent" else "")
         )
-        if (splitAllowed && strategy == DualNet.Strategy.AUTO && probeTargets.isNotEmpty()) {
-            probeJob = scope.launch { probeLoop() }
-        }
         writeStatus()
     }
 
     fun stop() {
-        probeJob?.cancel()
-        scope.cancel()
         val cm = SagerNet.connectivity
         callbacks.forEach { runCatching { cm.unregisterNetworkCallback(it) } }
         callbacks.clear()
@@ -143,21 +135,29 @@ class DualNetworkManager(
     private fun available(): List<String> = listOf(WIFI, CELLULAR).filter { networks.containsKey(it) }
 
     @Synchronized
-    private fun recompute() {
+    private fun recompute(forceStatus: Boolean = true) {
         val available = available()
         weights = if (strategy == DualNet.Strategy.AUTO) {
             DualNet.weights(available, stats)
         } else {
             available.associateWith { 1.0 / available.size }
         }
-        writeStatus()
+        val now = System.currentTimeMillis()
+        if (forceStatus || now - lastStatusWrite >= 2000) writeStatus()
+        if (!forceStatus && now - lastLog >= 10_000) {
+            lastLog = now
+            Log.i(TAG, "dual-network: ${statusLine()}")
+        }
     }
 
     // ---- SocketBinder ----
 
     override fun bindSocket(fd: Int, destination: String, udp: Boolean, split: Boolean): String {
         val label = if (split && splitAllowed) {
-            if (strategy == DualNet.Strategy.AUTO) picker.pickWeighted(weights) else picker.pickFixed(available())
+            if (strategy == DualNet.Strategy.AUTO) {
+                if (stats.values.any { it.dead }) recompute(forceStatus = false) // dead-network retry timer
+                picker.pickWeighted(weights)
+            } else picker.pickFixed(available())
         } else {
             if (singleNetwork == DualNet.Single.CELLULAR && networks.containsKey(CELLULAR)) CELLULAR else null
         } ?: return ""
@@ -172,48 +172,21 @@ class DualNetworkManager(
         }
     }
 
-    // ---- probing ----
-
-    private suspend fun probeLoop() {
-        val interval = probeIntervalSeconds.coerceIn(5, 300) * 1000L
-        while (scope.isActive) {
-            val current = networks.toMap()
-            current.map { (label, network) ->
-                scope.async {
-                    val rtt = probe(network)
-                    if (networks[label] == network) {
-                        stats.getOrPut(label) { DualNet.LinkStats() }.add(rtt)
-                    }
-                }
-            }.awaitAll()
-            recompute()
-            Log.i(TAG, "dual-network: ${statusLine()}")
-            delay(interval)
-        }
-    }
-
-    /** TCP connect RTT to the proxy server(s) over [network]; a refused connection still measures RTT. */
-    private fun probe(network: Network): Long? {
-        val results = probeTargets.take(2).mapNotNull { (host, port) ->
-            try {
-                val address = network.getAllByName(host).let { all ->
-                    all.firstOrNull { it is Inet4Address } ?: all.firstOrNull()
-                } ?: return@mapNotNull null
-                val start = System.nanoTime()
-                try {
-                    network.socketFactory.createSocket().use {
-                        it.connect(InetSocketAddress(address, port), 3000)
-                    }
-                } catch (e: ConnectException) {
-                    // ECONNREFUSED (e.g. UDP-only server): the RST still took one round trip
-                    if (e.message?.contains("ECONNREFUSED") != true) throw e
-                }
-                (System.nanoTime() - start) / 1_000_000
-            } catch (_: Exception) {
-                null
-            }
-        }
-        return if (results.isEmpty()) null else results.average().toLong()
+    /**
+     * Passive sample from libexclavecore (sampler.go), taken from a live split connection
+     * (null sample = connect error/timeout or a stalled connection).
+     */
+    override fun reportSample(network: String, rttMicros: Long, rttVarMicros: Long, loss: Double, failed: Boolean) {
+        if (!networks.containsKey(network)) return
+        val sample = if (failed) null else DualNet.Sample(
+            rttMicros / 1000.0,
+            if (rttVarMicros >= 0) rttVarMicros / 1000.0 else null,
+            loss.coerceIn(0.0, 1.0),
+        )
+        stats.getOrPut(network) { DualNet.LinkStats() }.add(sample)
+        samplesSeen.getOrPut(network) { AtomicLong() }.incrementAndGet()
+        if (failed) Log.w(TAG, "dual-network: $network connection failed/stalled")
+        recompute(forceStatus = failed)
     }
 
     // ---- status ----
@@ -232,6 +205,8 @@ class DualNetworkManager(
                     append(" loss=").append((s.loss * 100).toInt()).append("%")
                 }
                 counters[label]?.let { append(" conns=").append(it.get()) }
+                samplesSeen[label]?.let { append(" samples=").append(it.get()) }
+                if (s != null && s.dead) append(" DOWN")
             }
         }
     }

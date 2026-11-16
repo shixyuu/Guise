@@ -134,7 +134,7 @@ object Key {
     const val DUAL_NET_ENABLED = "dualNetEnabled"
     const val DUAL_NET_STRATEGY = "dualNetStrategy"
     const val DUAL_NET_SINGLE = "dualNetSingleNetwork"
-    const val DUAL_NET_PROBE_INTERVAL = "dualNetProbeInterval"
+    const val DUAL_NET_SAMPLE_KB = "dualNetSampleKb"
     const val DUAL_NET_STATUS = "dualNetStatus"
     const val BYEDPI_PROBE_TARGETS = "byedpiProbeTargets"
     const val BYEDPI_PROBE_CUSTOM = "byedpiProbeCustom"

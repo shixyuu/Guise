@@ -1,7 +1,7 @@
 From d1187e0d0778a0c999501e3c198b1b938046be79 Mon Sep 17 00:00:00 2001
 From: Guise <guise@localhost>
 Date: Mon, 16 Nov 2026 17:59:06 -0500
-Subject: [PATCH] Guise: socket binder hook for dual-network split
+Subject: [PATCH 1/2] Guise: socket binder hook for dual-network split
 
 ---
  dialer.go   |   3 ++
@@ -160,6 +160,630 @@ index a5b862a..db580c4 100644
  				_, _ = conn.Write([]byte{ProtectSuccess})
  			}(conn.(*net.UnixConn))
  		}
+-- 
+2.47.3
+
+
+From feab3d96353ca310cee4540cebce4639065f0d03 Mon Sep 17 00:00:00 2001
+From: Guise <guise@localhost>
+Date: Mon, 16 Nov 2026 18:13:12 -0500
+Subject: [PATCH 2/2] Guise: passive dual-network measurement from live split
+ connections (TCP_INFO)
+
+---
+ dialer.go                     |  10 +-
+ dualnet/dualnet.go            | 126 ++++++++++++++++++
+ dualnet/dualnet_test.go       |  66 ++++++++++
+ dualnet/tcpinfo_linux_test.go |  60 +++++++++
+ multinet.go                   |  14 +-
+ sampler.go                    | 232 ++++++++++++++++++++++++++++++++++
+ 6 files changed, 504 insertions(+), 4 deletions(-)
+ create mode 100644 dualnet/dualnet.go
+ create mode 100644 dualnet/dualnet_test.go
+ create mode 100644 dualnet/tcpinfo_linux_test.go
+ create mode 100644 sampler.go
+
+diff --git a/dialer.go b/dialer.go
+index 6f8de5a..cecf7dd 100644
+--- a/dialer.go
++++ b/dialer.go
+@@ -21,6 +21,7 @@ import (
+ 	"context"
+ 	"net"
+ 	"os"
++	"time"
+ 
+ 	"github.com/exclavenetwork/exclave-core/v5/common/errors"
+ 	v2rayNet "github.com/exclavenetwork/exclave-core/v5/common/net"
+@@ -83,7 +84,7 @@ func (dialer protectedDialer) dial(ctx context.Context, src v2rayNet.Address, de
+ 	}
+ 	// Guise: dual-network split / single-network pinning
+ 	split, sockopt := takeSplitMark(sockopt)
+-	bindDialSocket(fd, dest, split)
++	label := bindDialSocket(fd, dest, split)
+ 	if sockopt != nil {
+ 		var network string
+ 		switch dest.Network {
+@@ -124,7 +125,11 @@ func (dialer protectedDialer) dial(ctx context.Context, src v2rayNet.Address, de
+ 			copy(sockaddrInet6.Addr[:], dest.Address.IP())
+ 			sockaddr = sockaddrInet6
+ 		}
++		connectStart := time.Now()
+ 		err = unix.Connect(fd, sockaddr)
++		if split && label != "" {
++			reportConnect(label, time.Since(connectStart), err)
++		}
+ 	case v2rayNet.Network_UDP:
+ 		err = unix.Bind(fd, &unix.SockaddrInet6{})
+ 	}
+@@ -162,6 +167,9 @@ func (dialer protectedDialer) dial(ctx context.Context, src v2rayNet.Address, de
+ 			unix.Close(fd)
+ 			return nil, err
+ 		}
++		if split && label != "" {
++			trackSplitConn(conn, label)
++		}
+ 		return conn, nil
+ 	}
+ }
+diff --git a/dualnet/dualnet.go b/dualnet/dualnet.go
+new file mode 100644
+index 0000000..9746747
+--- /dev/null
++++ b/dualnet/dualnet.go
+@@ -0,0 +1,126 @@
++/*
++Copyright (C) 2026 Guise contributors
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with this program.  If not, see <https://www.gnu.org/licenses/>.
++*/
++
++// Package dualnet holds the platform-independent parts of Guise's passive dual-network
++// measurement: turning TCP_INFO counters into "bytes sent" and "loss", and the per-network
++// traffic trigger that decides when a sample is taken.
++package dualnet
++
++import "sync"
++
++// Counters is the subset of the kernel's struct tcp_info the sampler uses. Fields that the
++// running kernel does not provide are zero (older kernels return a shorter struct).
++type Counters struct {
++	BytesAcked   uint64 // tcpi_bytes_acked (Linux 4.1+)
++	SegsOut      uint32 // tcpi_segs_out (Linux 4.2+)
++	Mss          uint32 // tcpi_snd_mss
++	TotalRetrans uint32 // tcpi_total_retrans
++	LastDataSent uint32 // tcpi_last_data_sent, ms since the last data was sent
++}
++
++// SentDelta estimates the payload bytes sent between prev and cur. It prefers bytes_acked,
++// then segs_out × MSS. On kernels with neither it counts one MSS-sized "tick" worth of
++// threshold when data was sent within the last tickMs, so sampling still happens (at most
++// once per tick) while the connection is active.
++func SentDelta(prev, cur Counters, tickMs uint32, fallbackBytes uint64) uint64 {
++	switch {
++	case cur.BytesAcked > 0 || prev.BytesAcked > 0:
++		if cur.BytesAcked >= prev.BytesAcked {
++			return cur.BytesAcked - prev.BytesAcked
++		}
++		return 0
++	case cur.SegsOut > 0 || prev.SegsOut > 0:
++		if cur.SegsOut >= prev.SegsOut {
++			return uint64(cur.SegsOut-prev.SegsOut) * uint64(cur.Mss)
++		}
++		return 0
++	default:
++		if cur.LastDataSent < tickMs {
++			return fallbackBytes
++		}
++		return 0
++	}
++}
++
++// Loss is the share of segments retransmitted between two snapshots of one connection.
++func Loss(prev, cur Counters) float64 {
++	if cur.TotalRetrans <= prev.TotalRetrans {
++		return 0
++	}
++	retrans := float64(cur.TotalRetrans - prev.TotalRetrans)
++	var sent float64
++	switch {
++	case cur.SegsOut > prev.SegsOut:
++		sent = float64(cur.SegsOut - prev.SegsOut)
++	case cur.BytesAcked > prev.BytesAcked && cur.Mss > 0:
++		sent = float64(cur.BytesAcked-prev.BytesAcked)/float64(cur.Mss) + retrans
++	}
++	if sent < retrans {
++		sent = retrans
++	}
++	if sent == 0 {
++		return 0
++	}
++	return retrans / sent
++}
++
++// Trigger accumulates bytes sent per network and fires once every Threshold bytes.
++// Threshold 0 disables sampling.
++type Trigger struct {
++	access    sync.Mutex
++	threshold uint64
++	acc       map[string]uint64
++}
++
++func NewTrigger(threshold uint64) *Trigger {
++	return &Trigger{threshold: threshold, acc: map[string]uint64{}}
++}
++
++func (t *Trigger) Threshold() uint64 {
++	t.access.Lock()
++	defer t.access.Unlock()
++	return t.threshold
++}
++
++func (t *Trigger) SetThreshold(threshold uint64) {
++	t.access.Lock()
++	defer t.access.Unlock()
++	t.threshold = threshold
++	t.acc = map[string]uint64{}
++}
++
++// Add records n bytes sent on network and reports whether a sample is due. Bytes beyond the
++// threshold are dropped (one sample per call at most), so a burst does not queue up samples.
++func (t *Trigger) Add(network string, n uint64) bool {
++	t.access.Lock()
++	defer t.access.Unlock()
++	if t.threshold == 0 || n == 0 {
++		return false
++	}
++	t.acc[network] += n
++	if t.acc[network] >= t.threshold {
++		t.acc[network] = 0
++		return true
++	}
++	return false
++}
++
++func (t *Trigger) Reset() {
++	t.access.Lock()
++	defer t.access.Unlock()
++	t.acc = map[string]uint64{}
++}
+diff --git a/dualnet/dualnet_test.go b/dualnet/dualnet_test.go
+new file mode 100644
+index 0000000..7f0475f
+--- /dev/null
++++ b/dualnet/dualnet_test.go
+@@ -0,0 +1,66 @@
++package dualnet
++
++import (
++	"math"
++	"testing"
++)
++
++func TestTriggerFiresEveryThreshold(t *testing.T) {
++	tr := NewTrigger(256 * 1024)
++	fired := 0
++	for i := 0; i < 100; i++ { // 100 × 64 KB = 6.25 MB on WiFi
++		if tr.Add("WiFi", 64*1024) {
++			fired++
++		}
++	}
++	if fired != 25 {
++		t.Fatalf("fired %d times, want 25", fired)
++	}
++	// per network: LTE has its own counter
++	if tr.Add("LTE", 200*1024) || !tr.Add("LTE", 100*1024) {
++		t.Fatal("LTE trigger wrong")
++	}
++	// burst: one sample, remainder dropped
++	if !tr.Add("WiFi", 10*1024*1024) || tr.Add("WiFi", 1) {
++		t.Fatal("burst should fire once and reset")
++	}
++	// no traffic, no sample
++	if tr.Add("WiFi", 0) {
++		t.Fatal("zero bytes fired")
++	}
++	tr.SetThreshold(0)
++	if tr.Add("WiFi", 1<<30) {
++		t.Fatal("disabled trigger fired")
++	}
++}
++
++func TestSentDelta(t *testing.T) {
++	if d := SentDelta(Counters{BytesAcked: 1000}, Counters{BytesAcked: 5000, SegsOut: 9}, 1000, 0); d != 4000 {
++		t.Fatalf("bytes_acked delta %d", d)
++	}
++	if d := SentDelta(Counters{SegsOut: 10, Mss: 1400}, Counters{SegsOut: 20, Mss: 1400}, 1000, 0); d != 14000 {
++		t.Fatalf("segs_out delta %d", d)
++	}
++	// old kernel: activity fallback
++	if d := SentDelta(Counters{}, Counters{LastDataSent: 200}, 1000, 4096); d != 4096 {
++		t.Fatalf("fallback active %d", d)
++	}
++	if d := SentDelta(Counters{}, Counters{LastDataSent: 5000}, 1000, 4096); d != 0 {
++		t.Fatalf("fallback idle %d", d)
++	}
++}
++
++func TestLoss(t *testing.T) {
++	if l := Loss(Counters{SegsOut: 100, TotalRetrans: 1}, Counters{SegsOut: 200, TotalRetrans: 6}); math.Abs(l-0.05) > 1e-9 {
++		t.Fatalf("loss %v", l)
++	}
++	if l := Loss(Counters{SegsOut: 100}, Counters{SegsOut: 200}); l != 0 {
++		t.Fatalf("no retrans loss %v", l)
++	}
++	if l := Loss(Counters{BytesAcked: 0, Mss: 1000}, Counters{BytesAcked: 9000, Mss: 1000, TotalRetrans: 1}); math.Abs(l-0.1) > 1e-9 {
++		t.Fatalf("bytes loss %v", l)
++	}
++	if l := Loss(Counters{}, Counters{TotalRetrans: 3}); l != 1 {
++		t.Fatalf("only retrans loss %v", l)
++	}
++}
+diff --git a/dualnet/tcpinfo_linux_test.go b/dualnet/tcpinfo_linux_test.go
+new file mode 100644
+index 0000000..0c3479c
+--- /dev/null
++++ b/dualnet/tcpinfo_linux_test.go
+@@ -0,0 +1,60 @@
++//go:build linux
++
++package dualnet
++
++import (
++	"io"
++	"net"
++	"syscall"
++	"testing"
++	"time"
++
++	"golang.org/x/sys/unix"
++)
++
++// Reads real TCP_INFO from a loopback connection the same way the sampler does.
++func TestTCPInfoOnLiveConn(t *testing.T) {
++	ln, err := net.Listen("tcp4", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer ln.Close()
++	go func() {
++		c, err := ln.Accept()
++		if err == nil {
++			io.Copy(io.Discard, c)
++			c.Close()
++		}
++	}()
++	conn, err := net.Dial("tcp4", ln.Addr().String())
++	if err != nil {
++		t.Fatal(err)
++	}
++	raw, _ := conn.(syscall.Conn).SyscallConn()
++	read := func() Counters {
++		var info *unix.TCPInfo
++		raw.Control(func(fd uintptr) { info, _ = unix.GetsockoptTCPInfo(int(fd), unix.IPPROTO_TCP, unix.TCP_INFO) })
++		if info.Rtt == 0 || info.State != 1 {
++			t.Fatalf("bad tcp_info: rtt=%d state=%d", info.Rtt, info.State)
++		}
++		return Counters{info.Bytes_acked, info.Segs_out, info.Snd_mss, info.Total_retrans, info.Last_data_sent}
++	}
++	before := read()
++	conn.Write(make([]byte, 1<<20))
++	time.Sleep(300 * time.Millisecond) // let the peer ack, as between two sampler ticks
++	after := read()
++	d := SentDelta(before, after, 1000, 0)
++	if d < 512*1024 {
++		t.Fatalf("delta %d", d)
++	}
++	tr := NewTrigger(256 * 1024)
++	if !tr.Add("WiFi", d) {
++		t.Fatal("trigger did not fire after 1 MB")
++	}
++	conn.Close()
++	err = raw.Control(func(uintptr) {})
++	if err == nil {
++		t.Fatal("Control on closed conn should fail (sampler relies on it)")
++	}
++	t.Logf("sent delta %d, loss %.3f", d, Loss(before, after))
++}
+diff --git a/multinet.go b/multinet.go
+index 69bc282..296a85f 100644
+--- a/multinet.go
++++ b/multinet.go
+@@ -44,6 +44,12 @@ type SocketBinder interface {
+ 	// empty for fds received through protect_path), split tells whether the socket dials a
+ 	// proxy server and may be balanced. Returns a label of the chosen network, or "".
+ 	BindSocket(fd int32, destination string, udp bool, split bool) string
++	// ReportSample delivers one passive measurement of a split (proxy-server) connection on
++	// network (a label returned by BindSocket). rttMicros / rttVarMicros come from the kernel's
++	// TCP_INFO (rttVarMicros < 0: unknown, e.g. a connect() handshake sample); loss is the
++	// retransmitted share of segments sent since the previous sample of that connection.
++	// failed reports a connect error/timeout or a stalled connection (repeated RTO).
++	ReportSample(network string, rttMicros int64, rttVarMicros int64, loss float64, failed bool)
+ }
+ 
+ var (
+@@ -56,6 +62,7 @@ func SetSocketBinder(binder SocketBinder) {
+ 	socketBinderAccess.Lock()
+ 	defer socketBinderAccess.Unlock()
+ 	socketBinder = binder
++	resetSampler()
+ }
+ 
+ func currentSocketBinder() SocketBinder {
+@@ -74,20 +81,21 @@ func takeSplitMark(sockopt *internet.SocketConfig) (bool, *internet.SocketConfig
+ 	return true, clean
+ }
+ 
+-func bindDialSocket(fd int, dest v2rayNet.Destination, split bool) {
++func bindDialSocket(fd int, dest v2rayNet.Destination, split bool) string {
+ 	binder := currentSocketBinder()
+ 	if binder == nil || dest.Address == nil || !dest.Address.Family().IsIP() {
+-		return
++		return ""
+ 	}
+ 	ip := dest.Address.IP()
+ 	if ip.IsLoopback() || ip.IsUnspecified() {
+-		return
++		return ""
+ 	}
+ 	label := binder.BindSocket(int32(fd), net.JoinHostPort(ip.String(), dest.Port.String()),
+ 		dest.Network == v2rayNet.Network_UDP, split)
+ 	if label != "" && split {
+ 		newError("dual-network: ", dest.NetAddr(), " -> ", label).AtDebug().WriteToLog()
+ 	}
++	return label
+ }
+ 
+ func bindProtectedFd(fd int) {
+diff --git a/sampler.go b/sampler.go
+new file mode 100644
+index 0000000..499a43a
+--- /dev/null
++++ b/sampler.go
+@@ -0,0 +1,232 @@
++/*
++Copyright (C) 2026 Guise contributors
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with this program.  If not, see <https://www.gnu.org/licenses/>.
++*/
++
++package libexclavecore
++
++// Guise: passive measurement of split (proxy-server) TCP connections.
++//
++// No extra packets are sent. While split connections are open, a 1 s ticker reads each one's
++// kernel TCP_INFO (a local getsockopt). Bytes sent are summed per network; every
++// "sample bytes" (SetDualNetSampleBytes) sent on a network, one sample is taken from that
++// network's busiest connection: smoothed RTT, RTT variance and the retransmitted share of
++// segments since that connection's previous sample. No traffic -> no samples. A connection
++// stuck in repeated retransmission timeouts with unacked data is reported as a failure, as are
++// connect() errors on split sockets; a connect() that succeeds contributes its handshake time.
++
++import (
++	"errors"
++	"net"
++	"sync"
++	"syscall"
++	"time"
++
++	"github.com/exclavenetwork/libexclavecore/dualnet"
++	"golang.org/x/sys/unix"
++)
++
++const (
++	samplerTick = time.Second
++	// fallback "bytes" per active tick on kernels without bytes_acked / segs_out
++	samplerFallbackBytes = 64 * 1024
++	// tcpi_retransmits (consecutive RTO count) at which a connection counts as stalled
++	samplerStallRetransmits = 3
++	tcpEstablished          = 1 // TCP_ESTABLISHED in include/net/tcp_states.h
++)
++
++type trackedConn struct {
++	raw        syscall.RawConn
++	network    string
++	last       dualnet.Counters // at previous tick
++	sampleBase dualnet.Counters // at previous sample of this connection
++	stalled    bool
++}
++
++var (
++	samplerAccess  sync.Mutex
++	samplerConns   = map[*trackedConn]struct{}{}
++	samplerRunning bool
++	samplerTrigger = dualnet.NewTrigger(0)
++)
++
++// SetDualNetSampleBytes sets after how many bytes sent per network one passive sample is
++// taken; 0 disables passive measurement (1:1 mode).
++func SetDualNetSampleBytes(bytes int64) {
++	if bytes < 0 {
++		bytes = 0
++	}
++	samplerTrigger.SetThreshold(uint64(bytes))
++}
++
++func resetSampler() {
++	samplerAccess.Lock()
++	defer samplerAccess.Unlock()
++	samplerConns = map[*trackedConn]struct{}{}
++	samplerTrigger.Reset()
++}
++
++func readTCPInfo(raw syscall.RawConn) (*unix.TCPInfo, error) {
++	var info *unix.TCPInfo
++	var infoErr error
++	err := raw.Control(func(fd uintptr) {
++		info, infoErr = unix.GetsockoptTCPInfo(int(fd), unix.IPPROTO_TCP, unix.TCP_INFO)
++	})
++	if err != nil {
++		return nil, err
++	}
++	return info, infoErr
++}
++
++func countersOf(info *unix.TCPInfo) dualnet.Counters {
++	return dualnet.Counters{
++		BytesAcked:   info.Bytes_acked,
++		SegsOut:      info.Segs_out,
++		Mss:          info.Snd_mss,
++		TotalRetrans: info.Total_retrans,
++		LastDataSent: info.Last_data_sent,
++	}
++}
++
++func reportSample(network string, rtt, rttVar int64, loss float64, failed bool) {
++	if binder := currentSocketBinder(); binder != nil {
++		binder.ReportSample(network, rtt, rttVar, loss, failed)
++	}
++}
++
++func reportConnect(network string, took time.Duration, err error) {
++	if samplerTrigger.Threshold() == 0 {
++		return
++	}
++	switch {
++	case err == nil:
++		reportSample(network, took.Microseconds(), -1, 0, false)
++	case errors.Is(err, unix.ECONNREFUSED):
++		// the server answered: the path works, nothing to learn about quality
++	default:
++		reportSample(network, 0, -1, 1, true)
++	}
++}
++
++func trackSplitConn(conn net.Conn, network string) {
++	if samplerTrigger.Threshold() == 0 {
++		return
++	}
++	sc, ok := conn.(syscall.Conn)
++	if !ok {
++		return
++	}
++	raw, err := sc.SyscallConn()
++	if err != nil {
++		return
++	}
++	tc := &trackedConn{raw: raw, network: network}
++	if info, err := readTCPInfo(raw); err == nil {
++		tc.last = countersOf(info)
++		tc.sampleBase = tc.last
++	}
++	samplerAccess.Lock()
++	defer samplerAccess.Unlock()
++	samplerConns[tc] = struct{}{}
++	if !samplerRunning {
++		samplerRunning = true
++		go samplerLoop()
++	}
++}
++
++func samplerLoop() {
++	ticker := time.NewTicker(samplerTick)
++	defer ticker.Stop()
++	for range ticker.C {
++		if !samplerOnce() {
++			return
++		}
++	}
++}
++
++type tickSample struct {
++	conn  *trackedConn
++	info  *unix.TCPInfo
++	delta uint64
++}
++
++// samplerOnce runs one tick; returns false (and marks the sampler stopped) when there is
++// nothing left to watch.
++func samplerOnce() bool {
++	samplerAccess.Lock()
++	if len(samplerConns) == 0 {
++		samplerRunning = false
++		samplerAccess.Unlock()
++		return false
++	}
++	conns := make([]*trackedConn, 0, len(samplerConns))
++	for c := range samplerConns {
++		conns = append(conns, c)
++	}
++	samplerAccess.Unlock()
++
++	busiest := map[string]tickSample{}
++	sent := map[string]uint64{}
++	var closed []*trackedConn
++	type failure struct{ network string }
++	var failures []failure
++	for _, c := range conns {
++		info, err := readTCPInfo(c.raw)
++		if err != nil || info.State != tcpEstablished {
++			// closed (Control fails on a closed conn) or no longer established
++			closed = append(closed, c)
++			continue
++		}
++		cur := countersOf(info)
++		delta := dualnet.SentDelta(c.last, cur, uint32(samplerTick/time.Millisecond), samplerFallbackBytes)
++		c.last = cur
++		stalled := info.Retransmits >= samplerStallRetransmits && info.Unacked > 0
++		if stalled && !c.stalled {
++			failures = append(failures, failure{c.network})
++		}
++		c.stalled = stalled
++		if delta == 0 || stalled {
++			continue
++		}
++		sent[c.network] += delta
++		if b, ok := busiest[c.network]; !ok || delta > b.delta {
++			busiest[c.network] = tickSample{c, info, delta}
++		}
++	}
++	if len(closed) > 0 {
++		samplerAccess.Lock()
++		for _, c := range closed {
++			delete(samplerConns, c)
++		}
++		samplerAccess.Unlock()
++	}
++	for _, f := range failures {
++		reportSample(f.network, 0, -1, 1, true)
++	}
++	for network, n := range sent {
++		if !samplerTrigger.Add(network, n) {
++			continue
++		}
++		b := busiest[network]
++		cur := countersOf(b.info)
++		loss := dualnet.Loss(b.conn.sampleBase, cur)
++		b.conn.sampleBase = cur
++		if b.info.Rtt == 0 {
++			continue
++		}
++		reportSample(network, int64(b.info.Rtt), int64(b.info.Rttvar), loss, false)
++	}
++	return true
++}
 -- 
 2.47.3
 

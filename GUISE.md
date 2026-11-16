@@ -199,14 +199,14 @@ Entry points: Settings → ByeDPI → "Connectivity test", and a card on the mai
 - Possible later work: option B from the design (measure through a throw-away `V2RayTestInstance` so the result
   includes the core), HTTP-only sites, per-site breakdown.
 
-## Dual network: Wi-Fi + mobile data split (guise.6)
+## Dual network: Wi-Fi + mobile data split (guise.6, passive measurement since guise.7)
 Optional, **off by default**. Settings → 双网络（WiFi + 移动数据）.
 
 | Key | Default | Meaning |
 |---|---|---|
 | `dualNetEnabled` | off | Keep cellular up next to Wi-Fi (`ConnectivityManager.requestNetwork`) and enable the feature |
 | `dualNetStrategy` | `0` = 1:1 | `0` alternate networks per new proxy-server connection; `1` auto (latency/jitter weighted) |
-| `dualNetProbeInterval` | 15 s | Auto mode: TCP-connect RTT probe to the proxy server over each network (clamped 5–300 s, window of 10 samples) |
+| `dualNetSampleKb` | 256 KB | Auto mode: take one passive sample per this many KB sent on a network (clamped 16–65536). Replaces guise.6's `dualNetProbeInterval` timer probe |
 | `dualNetSingleNetwork` | `0` = Wi-Fi/default | Network used when not splitting (ByeDPI profile, direct traffic): `0` system default, `1` mobile data |
 | `dualNetStatus` | – | Read-only: last status line written by the service (`noBackupFilesDir/dualnet_status`) |
 
@@ -220,15 +220,35 @@ and direct sockets are pinned to `dualNetSingleNetwork`. Loopback sockets (core 
 In proxy-only (non-VPN) mode a protected dialer without VPN protection (`WithGuiseDialer`) is installed so the hook
 still runs.
 
-**Balancer** (`dualnet/DualNet.kt`, unit-tested in `DualNetTest`): per network, score =
-(1−loss)² / (median RTT + 2·jitter + 10 ms); a network with 3 consecutive probe failures is dead (weight 0); a
-network without samples gets the average healthy score; if everything is dead the weights are equal. New
-connections are assigned by smooth weighted round-robin. Network loss/gain is handled by the
-`NetworkCallback`s: a lost network gets weight 0 immediately, a returning one rejoins. Log tag `Guise`,
-lines `dual-network: …` show active networks, weights and counters.
+**Passive measurement (auto mode, guise.7).** No probe traffic. `libexclavecore/sampler.go` tracks every split
+TCP connection it dialed (via its `syscall.RawConn`, so no raw fd can be reused after close). While at least one is
+open, a 1 s ticker reads each one's `TCP_INFO` (local `getsockopt`, no packets) and sums the bytes sent per network
+(`tcpi_bytes_acked`, else `segs_out × mss`, else "data sent in the last second" on very old kernels). Each time a
+network crosses `dualNetSampleKb`, one sample is taken from that network's busiest connection in that tick: kernel
+smoothed RTT (`tcpi_rtt`), RTT variance (`tcpi_rttvar`, used as jitter) and the retransmitted share of segments since
+that connection's previous sample (`total_retrans / segs_out` deltas). So at most one sample per network per second,
+and none when idle; weights keep their last values. Connect handshakes on split sockets also give one RTT sample;
+connect errors/timeouts (except ECONNREFUSED) and connections stuck in ≥3 consecutive RTOs with unacked data are
+reported as failures. Samples go to Kotlin through `SocketBinder.ReportSample`. The trigger/delta/loss logic lives in
+the pure-Go package `libexclavecore/dualnet` with host-runnable tests (including one on a real loopback TCP socket).
+
+**UDP / QUIC** (Hysteria2, TUIC, …): there is no `TCP_INFO`, and quic-go's RTT stats are not reachable from the
+dialer, so UDP sessions are not measured. They are placed with the current weights (learned from TCP connections
+if any), otherwise 50/50 — with a UDP-only proxy, auto mode effectively behaves like 1:1. No active fallback probe
+was added, to keep "no extra traffic" strict.
+
+**Balancer** (`dualnet/DualNet.kt`, unit-tested in `DualNetTest`): window of the last 10 samples per network;
+latency = median RTT, jitter = median kernel RTT variance (or mean RTT difference if unknown), loss = mean
+retransmit share with failures counted as 1. Score = (1−loss)² / (latency + 2·jitter + 10 ms). A network with 3
+failures in a row is dead (weight 0) and gets an exploration share again after 30 s; a network without samples
+(no connections yet, or just came up) gets the average healthy score so it receives connections and gets measured;
+if everything is dead the weights are equal. New connections are assigned by smooth weighted round-robin. Network
+loss/gain is handled by the `NetworkCallback`s: a lost network is removed and its stats dropped. Log tag `Guise`,
+lines `dual-network: …` (at most every 10 s) show networks, weights, RTT/jitter/loss, connection and sample counts,
+and `DOWN` for dead networks; the settings status line shows the same.
 
 **Limitations.** Splitting is per underlying connection: one mux / XUDP / Hysteria2 (QUIC) session stays on the
-network it was opened on. Chain, balancer and custom-config profiles get no auto probe target → equal weights.
+network it was opened on. Auto mode measures TCP connections only (see UDP/QUIC above) and needs traffic: right after start, or when idle, weights are neutral/stale.
 External plugin processes are not split. In proxy-only mode ByeDPI is not pinned. Sockets on a network that
 disappears die with it; new connections go to the remaining network. Mobile data is used even on Wi-Fi.
 

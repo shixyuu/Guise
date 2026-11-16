@@ -207,7 +207,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var dualNetEnabled by configurationStore.boolean(Key.DUAL_NET_ENABLED)
     var dualNetStrategy by configurationStore.stringToInt(Key.DUAL_NET_STRATEGY) { DualNet.Strategy.FIXED }
     var dualNetSingleNetwork by configurationStore.stringToInt(Key.DUAL_NET_SINGLE) { DualNet.Single.WIFI }
-    var dualNetProbeInterval by configurationStore.stringToInt(Key.DUAL_NET_PROBE_INTERVAL) { DualNet.DEFAULT_PROBE_INTERVAL }
+    var dualNetSampleKb by configurationStore.stringToInt(Key.DUAL_NET_SAMPLE_KB) { DualNet.DEFAULT_SAMPLE_KB }
     /** comma separated target ids (presets and "custom:<url>") */
     var byedpiProbeTargets by configurationStore.stringNotBlack(Key.BYEDPI_PROBE_TARGETS) { ByeDPIProbeTargets.DEFAULT_SELECTION }
     var byedpiProbeCustom by configurationStore.string(Key.BYEDPI_PROBE_CUSTOM)

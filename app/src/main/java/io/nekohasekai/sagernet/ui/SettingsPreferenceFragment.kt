@@ -411,12 +411,12 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         // Guise: dual-network split
         val dualNetEnabled = findPreference<SwitchPreference>(Key.DUAL_NET_ENABLED)!!
         val dualNetStrategy = findPreference<ListPreference>(Key.DUAL_NET_STRATEGY)!!
-        val dualNetInterval = findPreference<EditTextPreference>(Key.DUAL_NET_PROBE_INTERVAL)!!
+        val dualNetSampleKb = findPreference<EditTextPreference>(Key.DUAL_NET_SAMPLE_KB)!!
         val dualNetSingle = findPreference<ListPreference>(Key.DUAL_NET_SINGLE)!!
         val dualNetStatus = findPreference<Preference>(Key.DUAL_NET_STATUS)!!
         fun updateDualNetVisibility(enabled: Boolean, strategy: Int) {
             dualNetStrategy.isVisible = enabled
-            dualNetInterval.isVisible = enabled && strategy == DualNet.Strategy.AUTO
+            dualNetSampleKb.isVisible = enabled && strategy == DualNet.Strategy.AUTO
             dualNetSingle.isVisible = enabled
             dualNetStatus.isVisible = enabled
         }
@@ -430,8 +430,11 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             needReload()
             true
         }
-        dualNetInterval.setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
-        dualNetInterval.onPreferenceChangeListener = reloadListener
+        dualNetSampleKb.setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
+        dualNetSampleKb.onPreferenceChangeListener = reloadListener
+        dualNetSampleKb.summaryProvider = Preference.SummaryProvider<EditTextPreference> {
+            "${it.text ?: DualNet.DEFAULT_SAMPLE_KB} KB\n" + getString(R.string.dual_net_sample_kb_sum)
+        }
         dualNetSingle.onPreferenceChangeListener = reloadListener
         updateDualNetVisibility(dualNetEnabled.isChecked, DataStore.dualNetStrategy)
         updateDualNetStatus()

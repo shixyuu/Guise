@@ -31,7 +31,7 @@ object DualNet {
         /** 1:1 round-robin per new proxy-server connection. */
         const val FIXED = 0
 
-        /** Weighted by probed latency / jitter / loss. */
+        /** Weighted by passively measured latency / jitter / loss of the live connections. */
         const val AUTO = 1
     }
 
@@ -43,59 +43,103 @@ object DualNet {
         const val CELLULAR = 1
     }
 
-    const val DEFAULT_PROBE_INTERVAL = 15
+    /** Auto mode: take one passive sample per this many KB sent on a network. */
+    const val DEFAULT_SAMPLE_KB = 256
+    const val MIN_SAMPLE_KB = 16
+    const val MAX_SAMPLE_KB = 65536
+
     const val WINDOW = 10
 
-    /** A network is considered dead after this many probe failures in a row. */
+    /** A network is considered dead after this many failures in a row (connect errors, stalls). */
     const val MAX_CONSECUTIVE_FAILURES = 3
 
-    /** Sliding window of probe results (RTT in ms, null = failure). */
+    /** A dead network is offered new connections again (exploration) after this long. */
+    const val DEAD_RETRY_MS = 30_000L
+
+    /**
+     * One passive measurement of a live proxy-server connection.
+     * [rttMs] kernel smoothed RTT (or connect() handshake time), [rttVarMs] kernel RTT variance
+     * (null if unknown), [loss] retransmitted share of segments since the previous sample.
+     */
+    data class Sample(val rttMs: Double, val rttVarMs: Double?, val loss: Double)
+
+    /** Sliding window of passive samples (null = failure) for one network. */
     class LinkStats(private val window: Int = WINDOW) {
-        private val samples = ArrayDeque<Long?>()
+        private val samples = ArrayDeque<Sample?>()
         var consecutiveFailures = 0
+            private set
+        var deadSince = 0L
             private set
 
         @Synchronized
-        fun add(rtt: Long?) {
-            samples.addLast(rtt)
+        fun add(sample: Sample?, now: Long = System.currentTimeMillis()) {
+            samples.addLast(sample)
             while (samples.size > window) samples.removeFirst()
-            consecutiveFailures = if (rtt == null) consecutiveFailures + 1 else 0
+            if (sample == null) {
+                consecutiveFailures++
+                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) deadSince = now
+            } else {
+                consecutiveFailures = 0
+                deadSince = 0
+            }
         }
 
+        /** Convenience for tests: RTT-only sample. */
+        fun add(rttMs: Long?, now: Long = System.currentTimeMillis()) =
+            add(rttMs?.let { Sample(it.toDouble(), null, 0.0) }, now)
+
         @Synchronized
-        fun successes(): List<Long> = samples.filterNotNull()
+        fun successes(): List<Sample> = samples.filterNotNull()
 
         val sampleCount: Int @Synchronized get() = samples.size
 
+        /** Failures count as fully lost; successful samples contribute their retransmit share. */
         val loss: Double
-            @Synchronized get() = if (samples.isEmpty()) 0.0 else samples.count { it == null }.toDouble() / samples.size
+            @Synchronized get() = if (samples.isEmpty()) 0.0 else samples.sumOf { it?.loss ?: 1.0 } / samples.size
 
         val latency: Double?
             get() {
-                val ok = successes().sorted()
+                val ok = successes().map { it.rttMs }.sorted()
                 if (ok.isEmpty()) return null
-                val mid = ok.size / 2
-                return if (ok.size % 2 == 1) ok[mid].toDouble() else (ok[mid - 1] + ok[mid]) / 2.0
+                return median(ok)
             }
 
-        /** Mean absolute difference between consecutive successful samples. */
+        /**
+         * Median kernel RTT variance when known; otherwise the mean absolute difference between
+         * consecutive RTT samples.
+         */
         val jitter: Double
             get() {
                 val ok = successes()
+                val vars = ok.mapNotNull { it.rttVarMs }.sorted()
+                if (vars.isNotEmpty()) return median(vars)
                 if (ok.size < 2) return 0.0
-                return ok.zipWithNext { a, b -> kotlin.math.abs(a - b).toDouble() }.average()
+                return ok.zipWithNext { a, b -> kotlin.math.abs(a.rttMs - b.rttMs) }.average()
             }
 
         val dead: Boolean get() = consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
+
+        /** Dead, but long enough ago that it should be tried again. */
+        fun retryDue(now: Long) = dead && now - deadSince >= DEAD_RETRY_MS
+
+        private fun median(sorted: List<Double>): Double {
+            val mid = sorted.size / 2
+            return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2.0
+        }
     }
 
     /**
      * Weights for the available networks (sum 1). Score = (1 - loss)^2 / (latency + 2 * jitter + 10);
-     * dead networks get 0. Networks without data yet get the mean score of the others (or equal
-     * weights when nothing is known); if every network looks dead, they share equally (the
-     * probe target may simply not answer TCP, e.g. a UDP-only server behind a firewall).
+     * dead networks get 0 until [DEAD_RETRY_MS] has passed, then they are treated like a network
+     * without data. Networks without data (no traffic yet) get the mean score of the healthy
+     * ones, so they still receive connections and get measured; if every network looks dead,
+     * they share equally.
      */
-    fun weights(available: Collection<String>, stats: Map<String, LinkStats>): Map<String, Double> {
+    fun weights(
+        available: Collection<String>,
+        stats: Map<String, LinkStats>,
+        now: Long = System.currentTimeMillis(),
+    ): Map<String, Double> {
         if (available.isEmpty()) return emptyMap()
         if (available.size == 1) return mapOf(available.first() to 1.0)
         val scores = LinkedHashMap<String, Double?>()
@@ -103,6 +147,7 @@ object DualNet {
             val s = stats[id]
             scores[id] = when {
                 s == null || s.sampleCount == 0 -> null
+                s.retryDue(now) -> null
                 s.dead -> 0.0
                 else -> {
                     val latency = s.latency
