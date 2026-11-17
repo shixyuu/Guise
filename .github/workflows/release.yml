@@ -49,6 +49,17 @@ jobs:
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r30
+      - name: Patch libexclavecore
+        run: |
+          git clone https://github.com/exclavenetwork/libexclavecore.git /tmp/libexclavecore
+          git -C /tmp/libexclavecore -c user.name="Guise" -c user.email="guise@localhost" am "$GITHUB_WORKSPACE/library/core/patches/libexclavecore-guise-dualnet.patch"
+          cat > library/core/go.work <<'EOF'
+          go 1.27
+          use (
+          	.
+          	/tmp/libexclavecore
+          )
+          EOF
       - name: Native Build
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}

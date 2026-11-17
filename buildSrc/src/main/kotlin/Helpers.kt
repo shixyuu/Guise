@@ -158,11 +158,17 @@ fun Project.setupAppCommon(projectName: String = "") {
         @Suppress("UnstableApiUsage")
         bundle.abi.enableSplit = false
         if (gradle.startParameter.taskNames.isNotEmpty() && gradle.startParameter.taskNames.any { it.lowercase().contains("assemble") }) {
+            val requestedAbis = (findProperty("abi") as? String)
+                ?.split(",")
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?.takeIf { it.isNotEmpty() }
+                ?: listOf("x86", "x86_64", "armeabi-v7a", "arm64-v8a")
             splits.abi.apply {
                 isEnable = true
                 isUniversalApk = false
                 reset()
-                include("x86", "x86_64", "armeabi-v7a", "arm64-v8a")
+                include(*requestedAbis.toTypedArray())
             }
         }
     }

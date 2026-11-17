@@ -9,6 +9,16 @@ on:
       - "library/**"
       - ".github/workflows/debug.yml"
   workflow_dispatch:
+    inputs:
+      abi:
+        description: 'Target ABI(s), comma-separated (e.g. arm64-v8a or all)'
+        required: false
+        default: 'arm64-v8a'
+      include_legacy:
+        description: 'Build legacy (minSdk 21) variant'
+        type: boolean
+        required: false
+        default: false
 jobs:
   build:
     name: Build
@@ -39,11 +49,28 @@ jobs:
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r30
+      - name: Patch libexclavecore
+        run: |
+          git clone https://github.com/exclavenetwork/libexclavecore.git /tmp/libexclavecore
+          git -C /tmp/libexclavecore -c user.name="Guise" -c user.email="guise@localhost" am "$GITHUB_WORKSPACE/library/core/patches/libexclavecore-guise-dualnet.patch"
+          cat > library/core/go.work <<'EOF'
+          go 1.27
+          use (
+          	.
+          	/tmp/libexclavecore
+          )
+          EOF
       - name: Native Build
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          ./run lib core debug
+          if [ "${{ inputs.abi }}" = "arm64-v8a" ]; then
+            mkdir -p app/libs
+            (cd library/core && CGO_LDFLAGS="-Wl,-z,max-page-size=16384" gomobile bind -v -target=android/arm64 -androidapi 21 -tags="with_clash" "github.com/exclavenetwork/libexclavecore")
+            cp -vf library/core/libexclavecore.aar app/libs/
+          else
+            ./run lib core debug
+          fi
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -60,13 +87,22 @@ jobs:
         run: |
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           ./gradlew :app:downloadAssets
-          ./gradlew :app:assembleOssDebug :app:assembleLegacyDebug
+          ABI_ARG=""
+          if [ -n "${{ inputs.abi }}" ] && [ "${{ inputs.abi }}" != "all" ]; then
+            ABI_ARG="-Pabi=${{ inputs.abi }}"
+          fi
+          TASKS=":app:assembleOssDebug"
+          if [ "${{ inputs.include_legacy }}" = "true" ] || [ -z "${{ inputs.abi }}" ]; then
+            TASKS="$TASKS :app:assembleLegacyDebug"
+          fi
+          ./gradlew $TASKS $ABI_ARG
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7
         with:
           name: APKs
           path: app/build/outputs/apk/oss/debug
       - name: Upload Artifacts
+        if: inputs.include_legacy == true || inputs.abi == ''
         uses: actions/upload-artifact@v7
         with:
           name: APKs-legacy
