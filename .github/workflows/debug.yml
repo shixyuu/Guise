@@ -19,6 +19,10 @@ on:
         type: boolean
         required: false
         default: false
+      release_tag:
+        description: 'Optional GitHub Release tag to publish APK as pre-release (e.g. v1.0-rc2)'
+        required: false
+        default: ''
 jobs:
   build:
     name: Build
