@@ -28,7 +28,6 @@ import io.nekohasekai.sagernet.bg.VpnService
 import io.nekohasekai.sagernet.byedpi.ByeDPI
 import io.nekohasekai.sagernet.byedpi.ByeDPIAutoStrategy
 import io.nekohasekai.sagernet.dualnet.DualNetworkManager
-import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
 import libexclavecore.Libexclavecore
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
@@ -83,13 +82,11 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
 
     private fun startDualNetwork() {
         if (!DataStore.dualNetEnabled) return
-        val bean = profile.requireBean()
-        val byedpiMain = bean is SOCKSBean && bean.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
         val manager = DualNetworkManager(
             DataStore.dualNetStrategy,
             DataStore.dualNetSingleNetwork,
             DataStore.dualNetSampleKb,
-            !byedpiMain,
+            config.dualNetSplit,
             DataStore.dualNetUdpProbeInterval,
         )
         manager.start()

@@ -211,7 +211,7 @@ object ByeDPI {
         for (arg in args) {
             if (skipNext) {
                 skipNext = false
-                continue
+                if (!arg.startsWith("-")) continue
             }
             if (arg in flagsOwnedByGuise) continue
             if (arg in optionsWithValueOwnedByGuise) {

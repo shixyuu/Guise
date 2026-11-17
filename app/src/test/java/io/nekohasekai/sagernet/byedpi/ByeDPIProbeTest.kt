@@ -56,6 +56,16 @@ class ByeDPIProbeTest {
         assertNull(read("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nhello")) // truncated
         assertEquals(204, read("HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n"))
         assertEquals(200, read("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"))
+        val sink = java.io.ByteArrayOutputStream()
+        assertEquals(
+            200,
+            ByeDPIProbe.readResponse(
+                "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n10\r\n0123456789abcdef\r\n0\r\n\r\n".byteInputStream(),
+                limit = 4,
+                sink = sink,
+            )
+        )
+        assertEquals("0123", sink.toString())
         assertNull(read("HTTP/1.1 200 OK\r\nContent-Le")) // cut inside headers
         assertNull(read("\u0015\u0003\u0003\u0000\u0002\u0002\u0046")) // garbage / TLS alert
         assertNull(read(""))

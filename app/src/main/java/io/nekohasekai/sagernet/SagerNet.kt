@@ -127,6 +127,9 @@ class SagerNet : Application(),
         val isMainProcess = processName == BuildConfig.APPLICATION_ID
 
         if (!isMainProcess) {
+            if (DataStore.byedpiAutoState in 1..3) {
+                DataStore.byedpiAutoState = 0
+            }
             Libexclavecore.setUidDumper(this, Build.VERSION.SDK_INT < Build.VERSION_CODES.Q)
             if (DataStore.enableDebug && DataStore.pprofServer.isNotEmpty()) {
                 DebugInstance().launch()

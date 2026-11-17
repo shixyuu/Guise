@@ -166,6 +166,8 @@ class V2rayBuildResult(
     val useFakeDNS: Boolean,
     // Guise: local SOCKS port of the ByeDPI process to launch, 0 = ByeDPI not needed
     val byedpiPort: Int = 0,
+    // Guise: true if at least one outbound carries DualNet.SPLIT_MARK
+    val dualNetSplit: Boolean = false,
 ) {
     data class IndexEntity(var isBalancer: Boolean, var chain: LinkedHashMap<Triple<Int, String, String>, ProxyEntity>)
 }
@@ -295,8 +297,9 @@ fun buildV2RayConfig(
     //  - ByeDPI-only profile as the main outbound: it replaces the remote DNS;
     //  - global ByeDPI "all direct traffic" + route mode "direct": it replaces the (direct) DNS;
     //  - global ByeDPI "selected domains": dedicated servers for those domains (added below).
-    val byedpiIsMain = byedpiProfileInUse && proxies.size == 1 &&
-            (proxies[0].requireBean() as? SOCKSBean)?.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
+    val byedpiIsMain = byedpiProfileInUse && proxies.any {
+        (it.requireBean() as? SOCKSBean)?.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
+    }
     val byedpiDnsPlan = ByeDPI.dnsPlan(
         DataStore.byedpiDns, byedpiPort > 0, byedpiIsMain, byedpiGlobal, DataStore.byedpiMode,
         DataStore.byedpiDomains, routeMode == RouteMode.DIRECT, forTest,
@@ -1257,7 +1260,7 @@ fun buildV2RayConfig(
                                                     header = KcpObject.HeaderObject().apply {
                                                         type = bean.mekyaKcpHeaderType
                                                     }
-                                                    if (bean.mKcpSeed.isNotEmpty()) {
+                                                    if (bean.mekyaKcpSeed.isNotEmpty()) {
                                                         seed = bean.mekyaKcpSeed
                                                     }
                                                 }
@@ -1995,8 +1998,8 @@ fun buildV2RayConfig(
                                     username = bean.username
                                     password = bean.password
                                     congestionControl = bean.congestionControl
-                                    udpOverStream = udpOverStream
-                                    zeroRTTHandshake = zeroRTTHandshake
+                                    udpOverStream = bean.udpOverStream
+                                    zeroRTTHandshake = bean.zeroRTT
                                     if (bean.sni.isNotEmpty()) {
                                         serverName = bean.sni
                                     }
@@ -2155,13 +2158,27 @@ fun buildV2RayConfig(
                         currentOutbound = gson.fromJson(bean.content, OutboundObject::class.java).apply { init() }
                     }
 
+                    val preLayerServerAddress = if (bean is ConfigBean && bean.type == "v2ray_outbound") {
+                        bean.serverAddresses.listByLineOrComma().firstOrNull() ?: runCatching {
+                            val settingsObj = parseJson(bean.content, lenient = true).asJsonObject
+                                .getObject("settings", ignoreCase = true)
+                            settingsObj?.getString("address", ignoreCase = true)?.takeIf { it.isNotEmpty() }
+                                ?: listOf("servers", "vnext").firstNotNullOfOrNull { key ->
+                                    settingsObj?.getArray(key, ignoreCase = true)?.firstOrNull()
+                                        ?.getString("address", ignoreCase = true)?.takeIf { it.isNotEmpty() }
+                                }
+                        }.getOrNull()
+                    } else {
+                        bean.serverAddress
+                    }
+
                     if (byedpiPreLayer && byedpiPort > 0 && !proxyEntity.needExternal() && ByeDPI.preLayerApplies(
                             currentOutbound.protocol,
                             currentOutbound.streamSettings?.network,
                             currentOutbound.streamSettings?.tlsSettings?.alpn,
                             (bean is MieruBean && bean.protocol == MieruBean.PROTOCOL_UDP) ||
                                     (bean is TrustTunnelBean && bean.protocol == "quic"),
-                            bean.serverAddress,
+                            preLayerServerAddress,
                         )
                     ) {
                         byedpiPreLayerOutbounds.add(currentOutbound)
@@ -2637,6 +2654,9 @@ fun buildV2RayConfig(
                 outbound.proxySettings = OutboundObject.ProxySettingsObject().apply {
                     tag = ByeDPI.TAG_BYEDPI
                     transportLayer = true
+                }
+                if (outbound.streamSettings?.sockopt?.mark == DualNet.SPLIT_MARK) {
+                    outbound.streamSettings!!.sockopt!!.mark = null
                 }
             }
         }
@@ -3126,6 +3146,7 @@ fun buildV2RayConfig(
             alerts,
             DataStore.enableFakeDns,
             byedpiPort,
+            outbounds.any { it.streamSettings?.sockopt?.mark == DualNet.SPLIT_MARK },
         )
     }
 
@@ -3296,6 +3317,7 @@ fun buildCustomConfig(proxy: ProxyEntity, forTest: Boolean = false, forExport: B
         for (outbound in outbounds) {
             outboundArray.add(parseJson(gson.toJson(outbound), lenient = true))
         }
+        config.add("outbounds", outboundArray)
     }
 
     return V2rayBuildResult(

@@ -84,7 +84,10 @@ class ByeDPIProbeRunner(
      */
     private val vpnIncludesSelf = SagerNet.started && DataStore.serviceMode == Key.MODE_VPN &&
             DataStore.tunImplementation == TunImplementation.SYSTEM
-    private val protectPath = if (vpnIncludesSelf) {
+    private val protectPath = if (
+        SagerNet.started && DataStore.serviceMode == Key.MODE_VPN &&
+        (DataStore.tunImplementation == TunImplementation.SYSTEM || DataStore.dualNetEnabled)
+    ) {
         SagerNet.deviceStorage.noBackupFilesDir.toString() + "/protect_path"
     } else null
 
@@ -127,6 +130,15 @@ class ByeDPIProbeRunner(
             }.awaitAll().toMap().toMutableMap()
         } finally {
             dnsByeDPI?.first?.destroy()
+        }
+        // If current ByeDPI args broke DoH via ByeDPI, retry direct DoH before falling back to system DNS.
+        if (useDoh && dnsProxy != null && results.values.all { it == null }) {
+            val direct = hosts.map { host ->
+                async { host to resolveDoh(host, dohServers, null, network) }
+            }.awaitAll()
+            for ((host, address) in direct) {
+                if (address != null) results[host] = address
+            }
         }
         if (useDoh && results.values.all { it == null }) viaDoh = false // DoH unreachable
         for ((host, address) in results) {
@@ -188,7 +200,8 @@ class ByeDPIProbeRunner(
                 conn.disconnect()
             }
         }
-        return exchange(url, address, proxy, network, "application/dns-message", 4000)?.second
+        val (code, body) = exchange(url, address, proxy, network, "application/dns-message", 4000) ?: return null
+        return if (code == 200) body else null
     }
 
     // ---- strategies ----

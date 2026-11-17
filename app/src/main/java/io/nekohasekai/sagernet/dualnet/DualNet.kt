@@ -122,9 +122,11 @@ object DualNet {
                 return ok.zipWithNext { a, b -> kotlin.math.abs(a.rttMs - b.rttMs) }.average()
             }
 
-        val dead: Boolean get() = consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
+        val dead: Boolean
+            @Synchronized get() = consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
 
         /** Dead, but long enough ago that it should be tried again. */
+        @Synchronized
         fun retryDue(now: Long) = dead && now - deadSince >= DEAD_RETRY_MS
 
         private fun median(sorted: List<Double>): Double {

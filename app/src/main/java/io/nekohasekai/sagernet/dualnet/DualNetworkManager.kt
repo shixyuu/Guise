@@ -89,17 +89,23 @@ class DualNetworkManager(
 
     private fun callback(label: String) = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            networks[label] = network
-            Log.i(TAG, "dual-network: $label available ($network)")
-            recompute()
+            synchronized(this@DualNetworkManager) {
+                networks[label] = network
+                Log.i(TAG, "dual-network: $label available ($network)")
+                recompute()
+            }
         }
 
         override fun onLost(network: Network) {
-            if (networks[label] == network) networks.remove(label)
-            stats.remove(label)
-            samplesSeen.remove(label)
-            Log.i(TAG, "dual-network: $label lost")
-            recompute()
+            synchronized(this@DualNetworkManager) {
+                if (networks[label] == network) {
+                    networks.remove(label)
+                    stats.remove(label)
+                    samplesSeen.remove(label)
+                }
+                Log.i(TAG, "dual-network: $label lost")
+                recompute()
+            }
         }
     }
 
@@ -183,6 +189,7 @@ class DualNetworkManager(
      * Passive sample from libexclavecore (sampler.go), taken from a live split connection
      * (null sample = connect error/timeout or a stalled connection).
      */
+    @Synchronized
     override fun reportSample(network: String, rttMicros: Long, rttVarMicros: Long, loss: Double, failed: Boolean) {
         if (!networks.containsKey(network)) return
         val sample = if (failed) null else DualNet.Sample(

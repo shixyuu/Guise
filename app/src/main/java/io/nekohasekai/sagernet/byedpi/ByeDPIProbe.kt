@@ -106,12 +106,15 @@ object ByeDPIProbe {
                 if (size == 0L) return code
                 var left = size
                 while (left > 0) {
-                    val n = stream.read(buffer, 0, minOf(buffer.size.toLong(), left).toInt())
+                    val remainingLimit = limit - total
+                    if (remainingLimit <= 0) return code
+                    val n = stream.read(buffer, 0, minOf(buffer.size.toLong(), left, remainingLimit).toInt())
                     if (n < 0) return null
                     sink?.write(buffer, 0, n)
                     left -= n
+                    total += n
                 }
-                total += size
+                if (total >= limit) return code
                 readLine(stream) ?: return null // CRLF after the chunk
             }
             return code

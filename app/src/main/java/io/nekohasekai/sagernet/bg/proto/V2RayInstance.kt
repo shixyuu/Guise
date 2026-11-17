@@ -39,6 +39,8 @@ import io.nekohasekai.sagernet.fmt.naive.buildNaiveConfig
 import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.plugin.PluginManager
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import libexclavecore.V2RayInstance
 import android.util.Log
 import io.nekohasekai.sagernet.LogLevel
@@ -79,10 +81,11 @@ abstract class V2RayInstance(
 
     /** Guise: byedpi runs in its own pool so the automatic strategy selection can restart it. */
     private var byedpiProcesses: GuardedProcessPool? = null
+    private val byedpiMutex = Mutex()
 
-    protected fun launchByeDPI(args: String = DataStore.byedpiArgs) {
+    private fun buildByeDPICommands(args: String): List<String>? {
         val port = config.byedpiPort
-        if (port <= 0) return
+        if (port <= 0) return null
         val executable = File(SagerNet.application.applicationInfo.nativeLibraryDir, ByeDPI.EXECUTABLE)
         if (!executable.canExecute()) {
             Log.e("Guise", "ByeDPI executable missing or not executable: ${executable.absolutePath}")
@@ -91,16 +94,23 @@ abstract class V2RayInstance(
         val commands = ByeDPI.buildCommand(
             executable.absolutePath, port, args, byedpiProtectPath()
         ).toMutableList()
-        if (DataStore.logLevel >= LogLevel.DEBUG) {
+        if (DataStore.logLevel >= LogLevel.DEBUG &&
+            commands.none { it == "-x" || it.startsWith("-x") || it == "--debug" || it.startsWith("--debug=") }
+        ) {
             // per-connection desync log, shown in the in-app log under tag "libbyedpi"
             commands.add(1, "-x1")
         }
+        return commands
+    }
+
+    private fun startByeDPIPool(commands: List<String>) {
         Log.i("Guise", "ByeDPI: " + commands.joinToString(" "))
         byedpiProcesses = GuardedProcessPool {
             Log.e("Guise", "ByeDPI stopped: ${it.message}")
         }.apply { start(commands) }
-        // Don't let the core dial 127.0.0.1:port before byedpi is listening.
-        val ready = runBlocking(Dispatchers.IO) { ByeDPI.waitForListening(port) }
+    }
+
+    private fun logByeDPIReady(port: Int, ready: Boolean) {
         if (ready) {
             Log.i("Guise", "ByeDPI listening on 127.0.0.1:$port")
         } else {
@@ -108,16 +118,29 @@ abstract class V2RayInstance(
         }
     }
 
+    protected fun launchByeDPI(args: String = DataStore.byedpiArgs) {
+        val commands = buildByeDPICommands(args) ?: return
+        startByeDPIPool(commands)
+        // Don't let the core dial 127.0.0.1:port before byedpi is listening.
+        val ready = runBlocking(Dispatchers.IO) { ByeDPI.waitForListening(config.byedpiPort) }
+        logByeDPIReady(config.byedpiPort, ready)
+    }
+
     /**
      * Guise: replace the running byedpi with one using [args] on the same port (connections
      * through the old process are dropped; new ones wait at most ~1.5 s for the new listener).
      */
-    suspend fun restartByeDPI(args: String) {
+    suspend fun restartByeDPI(args: String) = byedpiMutex.withLock {
         if (config.byedpiPort <= 0 || isClosed) return
         byedpiProcesses?.closeAndJoin()
         byedpiProcesses = null
         if (isClosed) return
-        launchByeDPI(args)
+        val commands = buildByeDPICommands(args) ?: return
+        onMainDispatcher {
+            if (!isClosed) startByeDPIPool(commands)
+        }
+        if (isClosed) return
+        logByeDPIReady(config.byedpiPort, ByeDPI.waitForListening(config.byedpiPort))
     }
 
     protected open fun buildConfig() {

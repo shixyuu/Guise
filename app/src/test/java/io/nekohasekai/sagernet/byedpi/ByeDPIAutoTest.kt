@@ -28,6 +28,11 @@ class ByeDPIAutoTest {
         assertTrue(pool.zipWithNext().all { (a, b) -> a.successRate >= b.successRate })
         // zero-success rows never enter
         assertTrue(pool.all { it.successRate > 0 })
+        // working CURRENT row is eligible for pool selection
+        val withCurrent = ByeDPIAuto.pickPool(
+            listOf(row("-d1", ok = 4, total = 4, latency = 20, kind = ByeDPIProbe.Kind.CURRENT)) + rows
+        )
+        assertEquals("-d1", withCurrent[0].args)
     }
 
     @Test

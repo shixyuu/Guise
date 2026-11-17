@@ -829,7 +829,7 @@ new file mode 100644
 index 0000000..75b0a7a
 --- /dev/null
 +++ b/dualnet/probe_linux.go
-@@ -0,0 +1,139 @@
+@@ -0,0 +1,143 @@
 +//go:build linux
 +
 +/*
@@ -893,14 +893,21 @@ index 0000000..75b0a7a
 +	rand.Read(ids)
 +	dcid, scid := ids[:8], ids[8:]
 +	probe := BuildVNProbe(dcid, scid)
-+	tv := unix.NsecToTimeval(int64(timeout))
-+	unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
 +	start := time.Now()
 +	if _, err := unix.Write(fd, probe); err != nil {
 +		return 0, err
 +	}
 +	buf := make([]byte, 1500)
 +	for {
++		remaining := timeout - time.Since(start)
++		if remaining <= 0 {
++			return 0, errors.New("timeout")
++		}
++		tv := unix.NsecToTimeval(int64(remaining))
++		if tv.Sec == 0 && tv.Usec == 0 {
++			tv.Usec = 1
++		}
++		unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
 +		n, err := unix.Read(fd, buf)
 +		if err != nil {
 +			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
@@ -910,9 +917,6 @@ index 0000000..75b0a7a
 +		}
 +		if IsVNReply(buf[:n], dcid, scid) {
 +			return time.Since(start), nil
-+		}
-+		if time.Since(start) >= timeout {
-+			return 0, errors.New("timeout")
 +		}
 +	}
 +}
@@ -1376,7 +1380,7 @@ new file mode 100644
 index 0000000..5a94950
 --- /dev/null
 +++ b/udpsampler.go
-@@ -0,0 +1,245 @@
+@@ -0,0 +1,311 @@
 +/*
 +Copyright (C) 2026 Guise contributors
 +
@@ -1406,6 +1410,7 @@ index 0000000..5a94950
 +
 +import (
 +	"net"
++	"net/netip"
 +	"sort"
 +	"strings"
 +	"sync"
@@ -1421,27 +1426,83 @@ index 0000000..5a94950
 +	udpProbeDestIdle = 5 * time.Minute // forget per-server probe state after this
 +)
 +
-+type countingPacketConn struct {
-+	net.PacketConn
++type udpCounter struct {
 +	sent   atomic.Uint64
 +	closed atomic.Bool
 +}
 +
-+func (c *countingPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
-+	n, err := c.PacketConn.WriteTo(p, addr)
++func (c *udpCounter) add(n int) {
 +	if n > 0 {
 +		c.sent.Add(uint64(n))
 +	}
++}
++
++// countingUDPConn embeds *net.UDPConn so SyscallConn, SetReadBuffer, SetWriteBuffer, ReadMsgUDP,
++// WriteMsgUDP, etc. stay available to quic-go while every write path updates the byte counter.
++type countingUDPConn struct {
++	*net.UDPConn
++	ctr *udpCounter
++}
++
++func (c *countingUDPConn) Write(p []byte) (int, error) {
++	n, err := c.UDPConn.Write(p)
++	c.ctr.add(n)
++	return n, err
++}
++
++func (c *countingUDPConn) WriteTo(p []byte, addr net.Addr) (int, error) {
++	n, err := c.UDPConn.WriteTo(p, addr)
++	c.ctr.add(n)
++	return n, err
++}
++
++func (c *countingUDPConn) WriteToUDP(p []byte, addr *net.UDPAddr) (int, error) {
++	n, err := c.UDPConn.WriteToUDP(p, addr)
++	c.ctr.add(n)
++	return n, err
++}
++
++func (c *countingUDPConn) WriteToUDPAddrPort(p []byte, addr netip.AddrPort) (int, error) {
++	n, err := c.UDPConn.WriteToUDPAddrPort(p, addr)
++	c.ctr.add(n)
++	return n, err
++}
++
++func (c *countingUDPConn) WriteMsgUDP(p, oob []byte, addr *net.UDPAddr) (int, int, error) {
++	n, oobn, err := c.UDPConn.WriteMsgUDP(p, oob, addr)
++	c.ctr.add(n)
++	return n, oobn, err
++}
++
++func (c *countingUDPConn) WriteMsgUDPAddrPort(p, oob []byte, addr netip.AddrPort) (int, int, error) {
++	n, oobn, err := c.UDPConn.WriteMsgUDPAddrPort(p, oob, addr)
++	c.ctr.add(n)
++	return n, oobn, err
++}
++
++func (c *countingUDPConn) Close() error {
++	c.ctr.closed.Store(true)
++	return c.UDPConn.Close()
++}
++
++type countingPacketConn struct {
++	net.PacketConn
++	ctr *udpCounter
++}
++
++func (c *countingPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
++	n, err := c.PacketConn.WriteTo(p, addr)
++	c.ctr.add(n)
 +	return n, err
 +}
 +
 +func (c *countingPacketConn) Close() error {
-+	c.closed.Store(true)
++	c.ctr.closed.Store(true)
 +	return c.PacketConn.Close()
 +}
 +
 +type trackedUDP struct {
-+	conn     *countingPacketConn
++	ctr      *udpCounter
 +	dest     *net.UDPAddr
 +	lastSent uint64
 +}
@@ -1474,16 +1535,22 @@ index 0000000..5a94950
 +	if !udpSchedule.Enabled() || dest == nil {
 +		return conn
 +	}
-+	cc := &countingPacketConn{PacketConn: conn}
++	ctr := &udpCounter{}
++	var wrapped net.PacketConn
++	if u, ok := conn.(*net.UDPConn); ok {
++		wrapped = &countingUDPConn{UDPConn: u, ctr: ctr}
++	} else {
++		wrapped = &countingPacketConn{PacketConn: conn, ctr: ctr}
++	}
 +	samplerAccess.Lock()
 +	defer samplerAccess.Unlock()
-+	udpConns[&trackedUDP{conn: cc, dest: dest}] = struct{}{}
++	udpConns[&trackedUDP{ctr: ctr, dest: dest}] = struct{}{}
 +	udpProtector = protector
 +	if !samplerRunning {
 +		samplerRunning = true
 +		go samplerLoop()
 +	}
-+	return cc
++	return wrapped
 +}
 +
 +// udpTick is called by samplerOnce with samplerAccess held.
@@ -1492,10 +1559,10 @@ index 0000000..5a94950
 +	perDest := map[string]uint64{}
 +	addrs := map[string]*net.UDPAddr{}
 +	for u := range udpConns {
-+		sent := u.conn.sent.Load()
++		sent := u.ctr.sent.Load()
 +		delta := sent - u.lastSent
 +		u.lastSent = sent
-+		if u.conn.closed.Load() {
++		if u.ctr.closed.Load() {
 +			delete(udpConns, u)
 +		}
 +		if delta == 0 {
@@ -1563,11 +1630,14 @@ index 0000000..5a94950
 +		key := target.IP.String()
 +		samplerAccess.Lock()
 +		st := udpDests[key]
++		var method dualnet.ProbeMethod
++		if st != nil {
++			method = st.prober.Method
++		}
 +		samplerAccess.Unlock()
 +		if st == nil {
 +			continue
 +		}
-+		method := st.prober.Method
 +		type result struct {
 +			network string
 +			rtt     time.Duration

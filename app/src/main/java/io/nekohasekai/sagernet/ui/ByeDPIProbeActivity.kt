@@ -42,11 +42,17 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
+import io.nekohasekai.sagernet.aidl.ISagerNetService
+import io.nekohasekai.sagernet.bg.BaseService
+import io.nekohasekai.sagernet.bg.SagerConnection
+import io.nekohasekai.sagernet.byedpi.ByeDPI
 import io.nekohasekai.sagernet.byedpi.ByeDPIProbe
 import io.nekohasekai.sagernet.byedpi.ByeDPIProbeRunner
 import io.nekohasekai.sagernet.byedpi.ByeDPIProbeTargets
 import io.nekohasekai.sagernet.database.DataStore
+import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.databinding.LayoutByedpiProbeBinding
+import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -55,10 +61,11 @@ import kotlinx.coroutines.launch
  * the phone's current network and ranks them. Flow and default strategy list follow
  * romanvht/ByeByeDPI (GPL-3.0) TestActivity/TestService.
  */
-class ByeDPIProbeActivity : ThemedActivity() {
+class ByeDPIProbeActivity : ThemedActivity(), SagerConnection.Callback {
 
     private lateinit var binding: LayoutByedpiProbeBinding
     private val adapter = ResultAdapter()
+    private val connection = SagerConnection()
     private var job: Job? = null
     private var rows: List<ByeDPIProbe.Result> = emptyList()
     private var refreshPending = false
@@ -86,12 +93,26 @@ class ByeDPIProbeActivity : ThemedActivity() {
         binding.settings.setOnClickListener { showSettings() }
         binding.strategies.setOnClickListener { showStrategies() }
         binding.start.setOnClickListener { if (job?.isActive == true) stop() else start() }
+        connection.connect(this, this)
         updateSummary()
     }
 
     override fun onDestroy() {
+        connection.disconnect(this)
         job?.cancel()
         super.onDestroy()
+    }
+
+    override fun stateChanged(state: BaseService.State, profileName: String?, msg: String?) {
+        SagerNet.started = state.canStop
+    }
+
+    override fun onServiceConnected(service: ISagerNetService) {
+        SagerNet.started = try {
+            BaseService.State.entries[service.state].canStop
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun loadStrategyText(): String {
@@ -336,13 +357,21 @@ class ByeDPIProbeActivity : ThemedActivity() {
             .show()
     }
 
+    private fun isByeDPIActive(): Boolean {
+        if (DataStore.byedpiEnabled || DataStore.byedpiPreLayer) return true
+        val bean = runCatching {
+            SagerDatabase.proxyDao.getById(DataStore.selectedProxy)?.requireBean()
+        }.getOrNull()
+        return bean is SOCKSBean && bean.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
+    }
+
     private fun onResultClicked(row: ByeDPIProbe.Result) {
         val args = row.args ?: return
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.byedpi_probe_apply_title)
             .setMessage(
                 getString(R.string.byedpi_probe_apply_message, args) +
-                        if (!DataStore.byedpiEnabled) "\n\n" + getString(R.string.byedpi_probe_apply_disabled_hint) else ""
+                        if (!isByeDPIActive()) "\n\n" + getString(R.string.byedpi_probe_apply_disabled_hint) else ""
             )
             .setPositiveButton(R.string.byedpi_probe_apply) { _, _ ->
                 DataStore.byedpiArgs = args

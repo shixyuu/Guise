@@ -61,6 +61,8 @@ class ByeDPIAutoStrategy(
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile
+    private var stopped = false
 
     fun start() {
         scope.launch {
@@ -70,12 +72,13 @@ class ByeDPIAutoStrategy(
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "byedpi-auto: stopped: ${e.message}", e)
-                DataStore.byedpiAutoState = State.FAILED
+                if (!stopped) DataStore.byedpiAutoState = State.FAILED
             }
         }
     }
 
     fun stop() {
+        stopped = true
         scope.cancel()
         DataStore.byedpiAutoState = State.IDLE
     }
@@ -85,10 +88,10 @@ class ByeDPIAutoStrategy(
     private suspend fun loop() {
         delay(3000) // let the service settle
         val interval = ByeDPIAuto.intervalMs(intervalMinutes)
-        while (true) {
+        while (!stopped) {
             if (targets().isEmpty()) {
                 Log.w(TAG, "byedpi-auto: no test targets selected")
-                DataStore.byedpiAutoState = State.NO_TARGETS
+                if (!stopped) DataStore.byedpiAutoState = State.NO_TARGETS
                 return
             }
             val now = System.currentTimeMillis()
@@ -103,13 +106,13 @@ class ByeDPIAutoStrategy(
                     }
                 }
             }
-            DataStore.byedpiAutoState = State.IDLE
+            if (!stopped) DataStore.byedpiAutoState = State.IDLE
             // health checks until the next scheduled test
-            while (true) {
+            while (!stopped) {
                 val left = DataStore.byedpiAutoLastTest + interval - System.currentTimeMillis()
                 if (left <= 0) break
                 delay(minOf(left, ByeDPIAuto.HEALTH_INTERVAL_MS))
-                if (DataStore.byedpiAutoLastTest + interval - System.currentTimeMillis() > 0) healthCheck()
+                if (!stopped && DataStore.byedpiAutoLastTest + interval - System.currentTimeMillis() > 0) healthCheck()
             }
         }
     }
@@ -137,11 +140,13 @@ class ByeDPIAutoStrategy(
     }
 
     private suspend fun fullTest() {
+        if (stopped) return
         DataStore.byedpiAutoState = State.FULL_TEST
         val current = ByeDPI.effectiveArgs(DataStore.byedpiArgs)
         val rows = ByeDPIProbe.buildPlan(current, strategies()).filter { it.kind != ByeDPIProbe.Kind.BASELINE }
         Log.i(TAG, "byedpi-auto: full test of ${rows.size} strategies")
         test(rows, DataStore.byedpiProbeRequests)
+        if (stopped) return
         val now = System.currentTimeMillis()
         DataStore.byedpiAutoLastTest = now
         val pool = ByeDPIAuto.pickPool(rows)
@@ -159,6 +164,7 @@ class ByeDPIAutoStrategy(
 
     /** Re-tests the pool (and the current args); stores and returns the refreshed pool. */
     private suspend fun poolTest(pool: List<ByeDPIAuto.Entry>, requests: Int): List<ByeDPIAuto.Entry> {
+        if (stopped) return emptyList()
         DataStore.byedpiAutoState = State.POOL_TEST
         val current = ByeDPI.effectiveArgs(DataStore.byedpiArgs)
         val rows = mutableListOf<ByeDPIProbe.Result>()
@@ -166,8 +172,9 @@ class ByeDPIAutoStrategy(
         pool.forEach { rows.add(ByeDPIProbe.Result(ByeDPIProbe.Kind.STRATEGY, it.args)) }
         Log.i(TAG, "byedpi-auto: re-testing pool of ${pool.size}")
         test(rows, requests)
+        if (stopped) return emptyList()
         DataStore.byedpiAutoLastTest = System.currentTimeMillis()
-        val fresh = ByeDPIAuto.pickPool(rows.filter { it.kind == ByeDPIProbe.Kind.STRATEGY })
+        val fresh = ByeDPIAuto.pickPool(rows)
         if (fresh.isEmpty()) {
             Log.w(TAG, "byedpi-auto: whole pool failed")
             return fresh
@@ -181,28 +188,43 @@ class ByeDPIAutoStrategy(
     }
 
     private suspend fun healthCheck() {
+        if (stopped) return
         DataStore.byedpiAutoState = State.HEALTH_CHECK
         val current = ByeDPI.effectiveArgs(DataStore.byedpiArgs)
         val row = ByeDPIProbe.Result(ByeDPIProbe.Kind.CURRENT, current)
         test(listOf(row), requests = 1)
-        DataStore.byedpiAutoState = State.IDLE
-        if (!ByeDPIAuto.healthFailed(row.successRate)) return
+        if (stopped) return
+        if (!ByeDPIAuto.healthFailed(row.successRate)) {
+            DataStore.byedpiAutoState = State.IDLE
+            return
+        }
         Log.w(TAG, "byedpi-auto: current strategy failing (${(row.successRate * 100).toInt()}%), falling back")
         val pool = ByeDPIAuto.decode(DataStore.byedpiAutoPool).filter { it.args != current }
-        val retested = if (pool.isEmpty()) emptyList() else poolTestNoApply(pool)
+        val (retested, freshPool) = if (pool.isEmpty()) {
+            emptyList<ByeDPIAuto.Entry>() to emptyList()
+        } else {
+            poolTestNoApply(pool)
+        }
+        if (stopped) return
         val next = ByeDPIAuto.fallback(current, retested)
         if (next != null) {
+            if (freshPool.isNotEmpty()) {
+                DataStore.byedpiAutoPool = ByeDPIAuto.encode(freshPool)
+                DataStore.byedpiAutoLastTest = System.currentTimeMillis()
+            }
             apply(next.args, "fallback")
         } else {
             fullTest()
         }
+        if (!stopped) DataStore.byedpiAutoState = State.IDLE
     }
 
-    private suspend fun poolTestNoApply(pool: List<ByeDPIAuto.Entry>): List<ByeDPIAuto.Entry> {
+    private suspend fun poolTestNoApply(pool: List<ByeDPIAuto.Entry>): Pair<List<ByeDPIAuto.Entry>, List<ByeDPIAuto.Entry>> {
         DataStore.byedpiAutoState = State.POOL_TEST
         val rows = pool.map { ByeDPIProbe.Result(ByeDPIProbe.Kind.STRATEGY, it.args) }
         test(rows, requests = 1)
-        return rows.map { ByeDPIAuto.Entry(it.args!!, it.successRate, it.medianLatency) }
+        val entries = rows.map { ByeDPIAuto.Entry(it.args!!, it.successRate, it.medianLatency) }
+        return entries to ByeDPIAuto.pickPool(rows)
     }
 
     private suspend fun applyIfBetter(current: String, currentEntry: ByeDPIAuto.Entry?, best: ByeDPIAuto.Entry) {
@@ -210,6 +232,7 @@ class ByeDPIAutoStrategy(
     }
 
     private suspend fun apply(args: String, reason: String) {
+        if (stopped) return
         Log.i(TAG, "byedpi-auto: switching to [$args] ($reason)")
         DataStore.byedpiArgs = args
         DataStore.byedpiAutoSwitchedAt = System.currentTimeMillis()

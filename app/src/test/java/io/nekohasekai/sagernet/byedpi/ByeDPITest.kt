@@ -43,4 +43,12 @@ class ByeDPITest {
             ByeDPI.parseDomains("youtube.com\n full:x.com # comment\n\ngeosite:google,a.org\nyoutube.com"),
         )
     }
+
+    @Test
+    fun danglingOwnedOptionDoesNotEatNextFlag() {
+        assertEquals(
+            listOf("-d1", "-r1+s"),
+            ByeDPI.sanitizeArgs(listOf("-p", "-d1", "--port", "-r1+s")),
+        )
+    }
 }

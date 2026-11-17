@@ -104,7 +104,6 @@ class Hysteria2SettingsActivity : ProfileSettingsActivity<Hysteria2Bean>() {
         } else {
             DataStore.serverHysteria2OmitMaxDatagramFrameSize
         }
-        omitMaxDatagramFrameSize = DataStore.serverHysteria2OmitMaxDatagramFrameSize
         obfsType = DataStore.serverHysteria2ObfsType
         geckoMinPacketSize = DataStore.serverHysteria2GeckoMinPacketSize
         geckoMaxPacketSize = DataStore.serverHysteria2GeckoMaxPacketSize
