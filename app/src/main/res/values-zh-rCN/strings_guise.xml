@@ -98,4 +98,20 @@
     <string name="byedpi_auto_state_no_targets">未选择测试目标</string>
     <string name="byedpi_auto_state_failed">出错已停止（见日志）</string>
     <string name="byedpi_auto_pool_title">策略池</string>
+    <string name="settings_category_guise">抗封锁与多网</string>
+    <string name="settings_category_advanced">高级与系统</string>
+    <string name="settings_screen_appearance_stats">界面与统计显示</string>
+    <string name="settings_screen_appearance_stats_sum">测速间隔、通知显示、FAB 样式、流量统计</string>
+    <string name="settings_screen_route_advanced">高级路由与规则源</string>
+    <string name="settings_screen_route_advanced_sum">流量探测、出站域名解析策略、Geo 规则来源</string>
+    <string name="settings_screen_dns_advanced">高级 DNS 选项</string>
+    <string name="settings_screen_dns_advanced_sum">查询策略、EDNS、Bootstrap DNS、Hosts、DNS 路由</string>
+    <string name="settings_screen_tun_network">TUN 与底层网络</string>
+    <string name="settings_screen_tun_network_sum">TUN 实现、MTU、计费网络、ICMP、唤醒锁</string>
+    <string name="settings_screen_protocol_sum">TLS 分片、协议兼容性、安全警告</string>
+    <string name="settings_screen_inbound_sum">本地 SOCKS5、HTTP、透明代理与 DNS 入站端口</string>
+    <string name="settings_screen_debug">诊断与开发者选项</string>
+    <string name="settings_screen_debug_sum">日志级别、PCAP 抓包、根证书、STUN 与调试标志</string>
+    <string name="settings_status_enabled">已启用</string>
+    <string name="settings_status_disabled">已关闭</string>
 </resources>

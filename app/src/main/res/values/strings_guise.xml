@@ -99,4 +99,20 @@ Pool: %2$d · last test %3$s</string>
     <string name="byedpi_auto_state_no_targets">No test targets selected</string>
     <string name="byedpi_auto_state_failed">Stopped after an error (see log)</string>
     <string name="byedpi_auto_pool_title">Strategy pool</string>
+    <string name="settings_category_guise">Circumvention &amp; multi-network</string>
+    <string name="settings_category_advanced">Advanced &amp; system</string>
+    <string name="settings_screen_appearance_stats">Appearance &amp; statistics</string>
+    <string name="settings_screen_appearance_stats_sum">Speed indicator, notification display, FAB style, traffic stats</string>
+    <string name="settings_screen_route_advanced">Advanced routing &amp; rules</string>
+    <string name="settings_screen_route_advanced_sum">Sniffing, domain resolution strategy, Geo rule sources</string>
+    <string name="settings_screen_dns_advanced">Advanced DNS options</string>
+    <string name="settings_screen_dns_advanced_sum">Query strategy, EDNS, Bootstrap DNS, Hosts, DNS routing</string>
+    <string name="settings_screen_tun_network">TUN &amp; underlying network</string>
+    <string name="settings_screen_tun_network_sum">TUN stack, MTU, metered network, ICMP, wake lock</string>
+    <string name="settings_screen_protocol_sum">TLS fragmentation, protocol compatibility, security warnings</string>
+    <string name="settings_screen_inbound_sum">Local SOCKS5, HTTP, transparent proxy &amp; DNS inbound ports</string>
+    <string name="settings_screen_debug">Diagnostics &amp; developer</string>
+    <string name="settings_screen_debug_sum">Log level, PCAP, root CA, STUN, debug flags</string>
+    <string name="settings_status_enabled">Enabled</string>
+    <string name="settings_status_disabled">Disabled</string>
 </resources>

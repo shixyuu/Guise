@@ -45,12 +45,12 @@ import io.nekohasekai.sagernet.Key.MODE_VPN
 import io.nekohasekai.sagernet.byedpi.ByeDPI
 import io.nekohasekai.sagernet.byedpi.ByeDPIAuto
 import io.nekohasekai.sagernet.byedpi.ByeDPIAutoStrategy
-import io.nekohasekai.sagernet.dualnet.DualNet
-import io.nekohasekai.sagernet.dualnet.DualNetworkManager
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProfileManager
-import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
 import io.nekohasekai.sagernet.database.preference.EditTextPreferenceModifiers
+import io.nekohasekai.sagernet.dualnet.DualNet
+import io.nekohasekai.sagernet.dualnet.DualNetworkManager
+import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
 import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.ui.profile.ProfileSettingsActivity
 import io.nekohasekai.sagernet.utils.PackageCache
@@ -63,13 +63,13 @@ import java.util.Locale
 
 class SettingsPreferenceFragment : PreferenceFragmentCompat() {
 
-    private lateinit var isProxyApps: SwitchPreference
+    private var isProxyApps: SwitchPreference? = null
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
         listView.layoutManager = FixedLinearLayoutManager(listView)
-        listView.setPadding(0,0,0,dp2px(64))
+        listView.setPadding(0, 0, 0, dp2px(64))
         ViewCompat.setOnApplyWindowInsetsListener(listView) { v, insets ->
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars()
@@ -96,19 +96,24 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         if (DataStore.byedpiArgs.trim() == ByeDPI.LEGACY_DEFAULT_ARGS) {
             DataStore.byedpiArgs = ByeDPI.DEFAULT_ARGS
         }
-        addPreferencesFromResource(R.xml.global_preferences)
+        setPreferencesFromResource(R.xml.global_preferences, rootKey)
 
-        // common
-        isProxyApps = findPreference(Key.PROXY_APPS)!!
-        val bypassLan = findPreference<SwitchPreference>(Key.BYPASS_LAN)!!
-        val requireHttp = findPreference<SwitchPreference>(Key.REQUIRE_HTTP)!!
-        val httpUsername = findPreference<EditTextPreference>(Key.HTTP_USERNAME)!!
-        val httpPassword = findPreference<EditTextPreference>(Key.HTTP_PASSWORD)!!
-        val appendHttpProxy = findPreference<SwitchPreference>(Key.APPEND_HTTP_PROXY)!!
-        val httpProxyException = findPreference<EditTextPreference>(Key.HTTP_PROXY_EXCEPTION)!!
+        when (rootKey) {
+            null -> setupRootScreen()
+            "screen_appearance_stats" -> setupAppearanceStatsScreen()
+            "screen_byedpi" -> setupByeDPIScreen()
+            "screen_dual_net" -> setupDualNetScreen()
+            "screen_route_advanced" -> setupRouteAdvancedScreen()
+            "screen_dns_advanced" -> setupDnsAdvancedScreen()
+            "screen_tun_network" -> setupTunNetworkScreen()
+            "screen_protocol" -> setupProtocolScreen()
+            "screen_inbound" -> setupInboundScreen()
+            "screen_debug" -> setupDebugScreen()
+        }
+    }
 
-        // app settings
-        findPreference<ColorPickerPreference>(Key.APP_THEME)!!.setOnPreferenceChangeListener { _, newTheme ->
+    private fun setupRootScreen() {
+        findPreference<ColorPickerPreference>(Key.APP_THEME)?.setOnPreferenceChangeListener { _, newTheme ->
             val theme = Theme.getTheme(newTheme as Int)
             app.setTheme(theme)
             requireActivity().apply {
@@ -117,7 +122,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             true
         }
 
-        findPreference<ListPreference>(Key.NIGHT_THEME)!!.setOnPreferenceChangeListener { _, newValue ->
+        findPreference<ListPreference>(Key.NIGHT_THEME)?.setOnPreferenceChangeListener { _, newValue ->
             Theme.currentNightMode = (newValue as String).toInt()
             Theme.applyNightTheme()
             requireActivity().apply {
@@ -126,79 +131,59 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             true
         }
 
-        fun getLanguageDisplayName(code: String): String = run {
-            return when (code) {
-                "" -> getString(R.string.language_system_default)
-                "ar" -> getString(R.string.language_ar_display_name)
-                "cs" -> getString(R.string.language_cs_display_name)
-                "en-US" -> getString(R.string.language_en_display_name)
-                "es" -> getString(R.string.language_es_display_name)
-                "fa" -> getString(R.string.language_fa_display_name)
-                "fr" -> getString(R.string.language_fr_display_name)
-                "id" -> getString(R.string.language_id_display_name)
-                "it" -> getString(R.string.language_it_display_name)
-                "ja" -> getString(R.string.language_ja_display_name)
-                "ko" -> getString(R.string.language_ko_display_name)
-                "nb-NO" -> getString(R.string.language_nb_NO_display_name)
-                "ru" -> getString(R.string.language_ru_display_name)
-                "ta" -> getString(R.string.language_ta_display_name)
-                "tr" -> getString(R.string.language_tr_display_name)
-                "zh-Hans-CN" -> getString(R.string.language_zh_Hans_CN_display_name)
-                "zh-Hant-TW" -> getString(R.string.language_zh_Hant_TW_display_name)
-                else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    ULocale.forLanguageTag(code).displayName
-                } else {
-                    Locale.forLanguageTag(code).displayName
-                }
+        fun getLanguageDisplayName(code: String): String = when (code) {
+            "" -> getString(R.string.language_system_default)
+            "ar" -> getString(R.string.language_ar_display_name)
+            "cs" -> getString(R.string.language_cs_display_name)
+            "en-US" -> getString(R.string.language_en_display_name)
+            "es" -> getString(R.string.language_es_display_name)
+            "fa" -> getString(R.string.language_fa_display_name)
+            "fr" -> getString(R.string.language_fr_display_name)
+            "id" -> getString(R.string.language_id_display_name)
+            "it" -> getString(R.string.language_it_display_name)
+            "ja" -> getString(R.string.language_ja_display_name)
+            "ko" -> getString(R.string.language_ko_display_name)
+            "nb-NO" -> getString(R.string.language_nb_NO_display_name)
+            "ru" -> getString(R.string.language_ru_display_name)
+            "ta" -> getString(R.string.language_ta_display_name)
+            "tr" -> getString(R.string.language_tr_display_name)
+            "zh-Hans-CN" -> getString(R.string.language_zh_Hans_CN_display_name)
+            "zh-Hant-TW" -> getString(R.string.language_zh_Hant_TW_display_name)
+            else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                ULocale.forLanguageTag(code).displayName
+            } else {
+                Locale.forLanguageTag(code).displayName
             }
         }
-        val appLanguage = findPreference<ListPreference>(Key.APP_LANGUAGE)!!
-        val locale = when (val value = AppCompatDelegate.getApplicationLocales().toLanguageTags()) {
-            // https://stackoverflow.com/questions/13291578/how-to-localize-an-android-app-in-indonesian-language
-            // Some old Android versions still return "in".
-            "in" -> "id"
-            else -> value
-        }
-        appLanguage.summary = getLanguageDisplayName(locale)
-        appLanguage.value = if (locale in resources.getStringArray(R.array.language_value)) locale else ""
-        appLanguage.setOnPreferenceChangeListener { _, newValue ->
-            newValue as String
-            AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(newValue)) // "id" always works
-            appLanguage.summary = getLanguageDisplayName(newValue)
-            appLanguage.value = newValue
-            true
+        findPreference<ListPreference>(Key.APP_LANGUAGE)?.let { appLanguage ->
+            val locale = when (val value = AppCompatDelegate.getApplicationLocales().toLanguageTags()) {
+                // https://stackoverflow.com/questions/13291578/how-to-localize-an-android-app-in-indonesian-language
+                // Some old Android versions still return "in".
+                "in" -> "id"
+                else -> value
+            }
+            appLanguage.summary = getLanguageDisplayName(locale)
+            appLanguage.value = if (locale in resources.getStringArray(R.array.language_value)) locale else ""
+            appLanguage.setOnPreferenceChangeListener { _, newValue ->
+                newValue as String
+                AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(newValue))
+                appLanguage.summary = getLanguageDisplayName(newValue)
+                appLanguage.value = newValue
+                true
+            }
         }
 
-        val serviceMode = findPreference<ListPreference>(Key.SERVICE_MODE)!!
-        val tunImplementation = findPreference<ListPreference>(Key.TUN_IMPLEMENTATION)!!
-        val mtu = findPreference<EditTextPreference>(Key.MTU)!!
-        val enableVPNInterfaceIPv6Address = findPreference<SwitchPreference>(Key.ENABLE_VPN_INTERFACE_IPV6_ADDRESS)!!
-        val allowAppsBypassVpn = findPreference<SwitchPreference>(Key.ALLOW_APPS_BYPASS_VPN)!!
-        val meteredNetwork = findPreference<Preference>(Key.METERED_NETWORK)!!
-        val enablePcap = findPreference<SwitchPreference>(Key.ENABLE_PCAP)!!
-        val discardICMP = findPreference<SwitchPreference>(Key.DISCARD_ICMP)!!
-        val appTrafficStatistics = findPreference<SwitchPreference>(Key.APP_TRAFFIC_STATISTICS)!!
-        serviceMode.setOnPreferenceChangeListener { _, newValue ->
-            newValue as String
-            tunImplementation.isEnabled = newValue == MODE_VPN
-            mtu.isEnabled = newValue == MODE_VPN
-            enableVPNInterfaceIPv6Address.isEnabled = newValue == MODE_VPN
-            allowAppsBypassVpn.isEnabled = newValue == MODE_VPN
-            discardICMP.isEnabled = newValue == MODE_VPN
-            meteredNetwork.isEnabled = newValue == MODE_VPN
-            enablePcap.isEnabled = newValue == MODE_VPN && tunImplementation.value.toInt() == TunImplementation.GVISOR
-            appTrafficStatistics.isEnabled = newValue == MODE_VPN
-            isProxyApps.isEnabled = newValue == MODE_VPN
-            bypassLan.isEnabled = newValue == MODE_VPN
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                appendHttpProxy.isVisible = requireHttp.isChecked && newValue == MODE_VPN
-                        && httpUsername.isVisible && httpUsername.text.isNullOrEmpty()
-                        && httpPassword.isVisible && httpPassword.text.isNullOrEmpty()
-                httpProxyException.isVisible = requireHttp.isChecked && newValue == MODE_VPN
-                        && appendHttpProxy.isVisible && appendHttpProxy.isChecked
-                        && httpUsername.isVisible && httpUsername.text.isNullOrEmpty()
-                        && httpPassword.isVisible && httpPassword.text.isNullOrEmpty()
-            }
+        val proxyAppsPref = findPreference<SwitchPreference>(Key.PROXY_APPS)
+        isProxyApps = proxyAppsPref
+        val bypassLan = findPreference<SwitchPreference>(Key.BYPASS_LAN)
+        val enableIPv6 = findPreference<SwitchPreference>(Key.ENABLE_VPN_INTERFACE_IPV6_ADDRESS)
+        val isVpn = DataStore.serviceMode == MODE_VPN
+
+        findPreference<ListPreference>(Key.SERVICE_MODE)?.setOnPreferenceChangeListener { _, newValue ->
+            val vpn = (newValue as String) == MODE_VPN
+            proxyAppsPref?.isEnabled = vpn
+            bypassLan?.isEnabled = vpn
+            enableIPv6?.isEnabled = vpn
             if (SagerNet.started) {
                 runOnDefaultDispatcher {
                     SagerNet.stopService()
@@ -208,181 +193,84 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             }
             true
         }
-        tunImplementation.isEnabled = serviceMode.value == MODE_VPN
-        tunImplementation.setOnPreferenceChangeListener { _, newValue ->
-            if ((newValue as String).toInt() == TunImplementation.SYSTEM && Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN && app.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED) {
-                MaterialAlertDialogBuilder(requireContext()).apply {
-                    setTitle(R.string.error_title)
-                    setMessage(R.string.nearby_devices_permission_notice)
-                    setNeutralButton(R.string.open_settings) { _, _ ->
-                        try {
-                            startActivity(Intent().apply {
-                                action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
-                                data = Uri.fromParts("package", app.packageName, null)
-                            })
-                        } catch (e: Exception) {
-                            snackbar(e.readableMessage).show()
-                        }
-                    }
-                    setPositiveButton(android.R.string.ok, null)
-                }.show()
+
+        findPreference<Preference>(Key.ROUTE_MODE)?.onPreferenceChangeListener = reloadListener
+        proxyAppsPref?.apply {
+            isEnabled = isVpn
+            setOnPreferenceChangeListener { _, newValue ->
+                startActivity(Intent(activity, AppManagerActivity::class.java))
+                newValue as Boolean
             }
-            enablePcap.isEnabled = serviceMode.value == MODE_VPN && newValue.toInt() == TunImplementation.GVISOR
-            if (SagerNet.started) {
-                runOnDefaultDispatcher {
-                    SagerNet.reloadService()
+        }
+        bypassLan?.apply {
+            isEnabled = isVpn
+            onPreferenceChangeListener = reloadListener
+        }
+        enableIPv6?.apply {
+            isEnabled = isVpn
+            onPreferenceChangeListener = reloadListener
+        }
+
+        // Core DNS settings on root
+        findPreference<EditTextPreference>(Key.REMOTE_DNS)?.onPreferenceChangeListener = reloadListener
+        val useLocalDnsAsDirectDns = findPreference<SwitchPreference>(Key.USE_LOCAL_DNS_AS_DIRECT_DNS)
+        val directDns = findPreference<EditTextPreference>(Key.DIRECT_DNS)
+        directDns?.onPreferenceChangeListener = reloadListener
+        useLocalDnsAsDirectDns?.setOnPreferenceChangeListener { _, newValue ->
+            directDns?.isEnabled = newValue == false
+            needReload()
+            true
+        }
+        if (useLocalDnsAsDirectDns != null && directDns != null) {
+            directDns.isEnabled = !useLocalDnsAsDirectDns.isChecked
+        }
+        findPreference<SwitchPreference>(Key.ENABLE_FAKEDNS)?.onPreferenceChangeListener = reloadListener
+
+        updateGuiseScreenSummaries()
+    }
+
+    private fun setupAppearanceStatsScreen() {
+        val isVpn = DataStore.serviceMode == MODE_VPN
+        findPreference<SwitchPreference>(Key.APP_TRAFFIC_STATISTICS)?.apply {
+            isEnabled = isVpn
+            setOnPreferenceChangeListener { _, newValue ->
+                if (newValue as Boolean) {
+                    PackageCache.awaitLoadSync()
                 }
+                needReload()
+                true
+            }
+        }
+        val profileTrafficStatistics = findPreference<SwitchPreference>(Key.PROFILE_TRAFFIC_STATISTICS)
+        val speedInterval = findPreference<Preference>(Key.SPEED_INTERVAL)
+        val showDirectSpeed = findPreference<SwitchPreference>(Key.SHOW_DIRECT_SPEED)
+        profileTrafficStatistics?.setOnPreferenceChangeListener { _, newValue ->
+            val enabled = newValue as Boolean
+            speedInterval?.isEnabled = enabled
+            showDirectSpeed?.isEnabled = enabled
+            needReload()
+            true
+        }
+        val statsEnabled = profileTrafficStatistics?.isChecked ?: DataStore.profileTrafficStatistics
+        speedInterval?.apply {
+            isEnabled = statsEnabled
+            onPreferenceChangeListener = reloadListener
+        }
+        showDirectSpeed?.apply {
+            isEnabled = statsEnabled
+            onPreferenceChangeListener = reloadListener
+        }
+        findPreference<SwitchPreference>(Key.SHOW_GROUP_NAME)?.onPreferenceChangeListener = reloadListener
+        findPreference<ListPreference>(Key.FAB_STYLE)?.setOnPreferenceChangeListener { _, _ ->
+            requireActivity().apply {
+                finish()
+                startActivity(intent)
             }
             true
         }
-        mtu.isEnabled = serviceMode.value == MODE_VPN
-        mtu.setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
-        mtu.onPreferenceChangeListener = reloadListener
-        enableVPNInterfaceIPv6Address.isEnabled = serviceMode.value == MODE_VPN
-        enableVPNInterfaceIPv6Address.onPreferenceChangeListener = reloadListener
-        allowAppsBypassVpn.isEnabled = serviceMode.value == MODE_VPN
-        allowAppsBypassVpn.onPreferenceChangeListener = reloadListener
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            meteredNetwork.remove()
-        }
-        meteredNetwork.isEnabled = serviceMode.value == MODE_VPN
-        meteredNetwork.onPreferenceChangeListener = reloadListener
-        enablePcap.isEnabled = serviceMode.value == MODE_VPN && tunImplementation.value.toInt() == TunImplementation.GVISOR
-        enablePcap.setOnPreferenceChangeListener { _, newValue ->
-            if (newValue as Boolean) {
-                val path = File(
-                    app.getExternalFilesDir(null)?.apply { mkdirs() } ?: app.filesDir,
-                    "pcap"
-                ).canonicalPath
-                MaterialAlertDialogBuilder(requireContext()).apply {
-                    setTitle(R.string.pcap)
-                    setMessage(resources.getString(R.string.pcap_notice, path))
-                    setPositiveButton(android.R.string.ok) { _, _ ->
-                        needReload()
-                    }
-                    setNegativeButton(android.R.string.copy) { _, _ ->
-                        SagerNet.trySetPrimaryClip(path)
-                        snackbar(R.string.copy_success).show()
-                    }
-                }.show()
-            }
-            needReload()
-            true
-        }
-        discardICMP.isEnabled = serviceMode.value == MODE_VPN
-        discardICMP.onPreferenceChangeListener = reloadListener
-        appTrafficStatistics.isEnabled = serviceMode.value == MODE_VPN
-        appTrafficStatistics.setOnPreferenceChangeListener { _, newValue ->
-            newValue as Boolean
-            if (newValue) {
-                PackageCache.awaitLoadSync()
-            }
-            needReload()
-            true
-        }
+    }
 
-        val profileTrafficStatistics = findPreference<SwitchPreference>(Key.PROFILE_TRAFFIC_STATISTICS)!!
-        val speedInterval = findPreference<Preference>(Key.SPEED_INTERVAL)!!
-        val showDirectSpeed = findPreference<SwitchPreference>(Key.SHOW_DIRECT_SPEED)!!
-        profileTrafficStatistics.setOnPreferenceChangeListener { _, newValue ->
-            newValue as Boolean
-            speedInterval.isEnabled = newValue
-            showDirectSpeed.isEnabled = newValue
-            needReload()
-            true
-        }
-        speedInterval.isEnabled = profileTrafficStatistics.isChecked
-        speedInterval.onPreferenceChangeListener = reloadListener
-        showDirectSpeed.isEnabled = profileTrafficStatistics.isChecked
-        showDirectSpeed.onPreferenceChangeListener = reloadListener
-
-        findPreference<ListPreference>(Key.LOG_LEVEL)!!.setOnPreferenceChangeListener { _, newValue ->
-            if ((newValue as String).toInt() == LogLevel.DEBUG && !DataStore.logLevelDebugWarningDisable) {
-                MaterialAlertDialogBuilder(requireContext()).apply {
-                    setMessage(R.string.debug_log_sum)
-                    setPositiveButton(android.R.string.ok, null)
-                    setNeutralButton(R.string.do_not_show_again, { _, _ ->
-                        DataStore.logLevelDebugWarningDisable = true
-                    })
-                }.show()
-            }
-            needReload()
-            true
-        }
-
-        findPreference<ListPreference>(Key.PROVIDER_ROOT_CA)!!.setOnPreferenceChangeListener { _, newValue ->
-           if ((newValue as String).toInt() == RootCAProvider.CUSTOM) {
-                runOnMainDispatcher {
-                    val context = requireContext()
-                    MaterialAlertDialogBuilder(context)
-                        .setMessage(getString(R.string.custom_root_ca_hint, context.packageName))
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show()
-                }
-            }
-            true
-        }
-
-        // route settings
-        findPreference<Preference>(Key.ROUTE_MODE)!!.onPreferenceChangeListener = reloadListener
-        isProxyApps.isEnabled = serviceMode.value == MODE_VPN
-        isProxyApps.setOnPreferenceChangeListener { _, newValue ->
-            startActivity(Intent(activity, AppManagerActivity::class.java))
-            newValue as Boolean
-        }
-
-        bypassLan.isEnabled = serviceMode.value == MODE_VPN
-        bypassLan.setOnPreferenceChangeListener { _, _ ->
-            needReload()
-            true
-        }
-
-        findPreference<Preference>(Key.DOMAIN_STRATEGY)!!.onPreferenceChangeListener = reloadListener
-
-        val trafficSniffing = findPreference<SwitchPreference>(Key.TRAFFIC_SNIFFING)!!
-        val destinationOverride = findPreference<SwitchPreference>(Key.DESTINATION_OVERRIDE)!!
-        val hijackDns = findPreference<SwitchPreference>(Key.HIJACK_DNS)!!
-        trafficSniffing.setOnPreferenceChangeListener { _, newValue ->
-            destinationOverride.isEnabled = newValue as Boolean
-            hijackDns.isEnabled = newValue
-            needReload()
-            true
-        }
-        destinationOverride.isEnabled = trafficSniffing.isChecked
-        destinationOverride.onPreferenceChangeListener = reloadListener
-        hijackDns.isEnabled = trafficSniffing.isChecked
-        hijackDns.onPreferenceChangeListener = reloadListener
-
-        findPreference<ListPreference>(Key.OUTBOUND_DOMAIN_STRATEGY)!!.onPreferenceChangeListener = reloadListener
-        findPreference<ListPreference>(Key.OUTBOUND_DOMAIN_STRATEGY_FOR_DIRECT)!!.onPreferenceChangeListener = reloadListener
-        findPreference<ListPreference>(Key.OUTBOUND_DOMAIN_STRATEGY_FOR_SERVER)!!.onPreferenceChangeListener = reloadListener
-
-        val rulesProvider = findPreference<ListPreference>(Key.RULES_PROVIDER)!!
-        val rulesGeositeUrl = findPreference<LinkOrContentPreference>(Key.RULES_GEOSITE_URL)!!
-        val rulesGeoipUrl = findPreference<LinkOrContentPreference>(Key.RULES_GEOIP_URL)!!
-        rulesProvider.setOnPreferenceChangeListener { _, newValue ->
-            val provider = (newValue as String).toInt()
-            rulesGeositeUrl.isVisible = provider == 3
-            rulesGeoipUrl.isVisible = provider == 3
-            true
-        }
-        rulesGeositeUrl.isVisible = DataStore.rulesProvider == 3
-        rulesGeoipUrl.isVisible = DataStore.rulesProvider == 3
-
-        // protocol settings
-        val enableFragment = findPreference<SwitchPreference>(Key.ENABLE_FRAGMENT)!!
-        val enableFragmentForDirect = findPreference<SwitchPreference>(Key.ENABLE_FRAGMENT_FOR_DIRECT)!!
-        val fragmentMethod = findPreference<ListPreference>(Key.FRAGMENT_METHOD)!!
-        enableFragment.setOnPreferenceChangeListener { _, newValue ->
-            newValue as Boolean
-            enableFragmentForDirect.isVisible = newValue
-            fragmentMethod.isVisible = newValue
-            true
-        }
-        enableFragmentForDirect.isVisible = enableFragment.isChecked
-        fragmentMethod.isVisible = enableFragment.isChecked
-
-        // Guise: ByeDPI
+    private fun setupByeDPIScreen() {
         val byedpiEnabled = findPreference<SwitchPreference>(Key.BYEDPI_ENABLED)!!
         val byedpiMode = findPreference<ListPreference>(Key.BYEDPI_MODE)!!
         val byedpiDomains = findPreference<EditTextPreference>(Key.BYEDPI_DOMAINS)!!
@@ -410,8 +298,8 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             onPreferenceChangeListener = reloadListener
         }
         findPreference<SwitchPreference>(Key.BYEDPI_DNS_VIA_BYEDPI)!!.onPreferenceChangeListener = reloadListener
-        // Guise: ByeDPI pre-layer and automatic strategy selection
         findPreference<SwitchPreference>(Key.BYEDPI_PRE_LAYER)!!.onPreferenceChangeListener = reloadListener
+
         val byedpiAuto = findPreference<SwitchPreference>(Key.BYEDPI_AUTO)!!
         val byedpiAutoInterval = findPreference<EditTextPreference>(Key.BYEDPI_AUTO_INTERVAL)!!
         val byedpiAutoStatus = findPreference<Preference>(Key.BYEDPI_AUTO_STATUS)!!
@@ -441,7 +329,27 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             true
         }
         updateByeDPIAutoStatus()
-        // Guise: dual-network split
+
+        findPreference<Preference>(Key.BYEDPI_PROBE)!!.setOnPreferenceClickListener {
+            startActivity(Intent(requireContext(), ByeDPIProbeActivity::class.java))
+            true
+        }
+        findPreference<Preference>(Key.BYEDPI_CREATE_PROFILE)!!.setOnPreferenceClickListener {
+            runOnDefaultDispatcher {
+                ProfileManager.createProfile(DataStore.currentGroupId(), SOCKSBean().apply {
+                    name = getString(R.string.byedpi_profile_name)
+                    serverAddress = ByeDPI.PROFILE_MARKER_ADDRESS
+                    serverPort = 1080
+                })
+                onMainDispatcher {
+                    snackbar(R.string.byedpi_profile_created).show()
+                }
+            }
+            true
+        }
+    }
+
+    private fun setupDualNetScreen() {
         val dualNetEnabled = findPreference<SwitchPreference>(Key.DUAL_NET_ENABLED)!!
         val dualNetStrategy = findPreference<ListPreference>(Key.DUAL_NET_STRATEGY)!!
         val dualNetSampleKb = findPreference<EditTextPreference>(Key.DUAL_NET_SAMPLE_KB)!!
@@ -479,40 +387,51 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         }
         updateDualNetVisibility(dualNetEnabled.isChecked, DataStore.dualNetStrategy)
         updateDualNetStatus()
+    }
 
-        findPreference<Preference>(Key.BYEDPI_PROBE)!!.setOnPreferenceClickListener {
-            startActivity(android.content.Intent(requireContext(), ByeDPIProbeActivity::class.java))
-            true
+    private fun setupRouteAdvancedScreen() {
+        val isVpn = DataStore.serviceMode == MODE_VPN
+        findPreference<SwitchPreference>(Key.ALLOW_APPS_BYPASS_VPN)?.apply {
+            isEnabled = isVpn
+            onPreferenceChangeListener = reloadListener
         }
-        findPreference<Preference>(Key.BYEDPI_CREATE_PROFILE)!!.setOnPreferenceClickListener {
-            runOnDefaultDispatcher {
-                ProfileManager.createProfile(DataStore.currentGroupId(), SOCKSBean().apply {
-                    name = getString(R.string.byedpi_profile_name)
-                    serverAddress = ByeDPI.PROFILE_MARKER_ADDRESS
-                    serverPort = 1080
-                })
-                onMainDispatcher {
-                    snackbar(R.string.byedpi_profile_created).show()
-                }
-            }
-            true
-        }
+        findPreference<Preference>(Key.DOMAIN_STRATEGY)?.onPreferenceChangeListener = reloadListener
 
-        // DNS settings
-        findPreference<EditTextPreference>(Key.REMOTE_DNS)!!.onPreferenceChangeListener = reloadListener
-        findPreference<ListPreference>(Key.REMOTE_DNS_QUERY_STRATEGY)!!.onPreferenceChangeListener = reloadListener
-        findPreference<EditTextPreference>(Key.EDNS_CLIENT_IP)!!.onPreferenceChangeListener = reloadListener
-
-        val useLocalDnsAsDirectDns = findPreference<SwitchPreference>(Key.USE_LOCAL_DNS_AS_DIRECT_DNS)!!
-        val directDns = findPreference<EditTextPreference>(Key.DIRECT_DNS)!!
-        directDns.onPreferenceChangeListener = reloadListener
-        useLocalDnsAsDirectDns.setOnPreferenceChangeListener { _, newValue ->
-            directDns.isEnabled = newValue == false
+        val trafficSniffing = findPreference<SwitchPreference>(Key.TRAFFIC_SNIFFING)!!
+        val destinationOverride = findPreference<SwitchPreference>(Key.DESTINATION_OVERRIDE)!!
+        val hijackDns = findPreference<SwitchPreference>(Key.HIJACK_DNS)!!
+        trafficSniffing.setOnPreferenceChangeListener { _, newValue ->
+            destinationOverride.isEnabled = newValue as Boolean
+            hijackDns.isEnabled = newValue
             needReload()
             true
         }
-        directDns.isEnabled = !useLocalDnsAsDirectDns.isChecked
-        findPreference<ListPreference>(Key.DIRECT_DNS_QUERY_STRATEGY)!!.onPreferenceChangeListener = reloadListener
+        destinationOverride.isEnabled = trafficSniffing.isChecked
+        destinationOverride.onPreferenceChangeListener = reloadListener
+        hijackDns.isEnabled = trafficSniffing.isChecked
+        hijackDns.onPreferenceChangeListener = reloadListener
+
+        findPreference<ListPreference>(Key.OUTBOUND_DOMAIN_STRATEGY)?.onPreferenceChangeListener = reloadListener
+        findPreference<ListPreference>(Key.OUTBOUND_DOMAIN_STRATEGY_FOR_DIRECT)?.onPreferenceChangeListener = reloadListener
+        findPreference<ListPreference>(Key.OUTBOUND_DOMAIN_STRATEGY_FOR_SERVER)?.onPreferenceChangeListener = reloadListener
+
+        val rulesProvider = findPreference<ListPreference>(Key.RULES_PROVIDER)!!
+        val rulesGeositeUrl = findPreference<LinkOrContentPreference>(Key.RULES_GEOSITE_URL)!!
+        val rulesGeoipUrl = findPreference<LinkOrContentPreference>(Key.RULES_GEOIP_URL)!!
+        rulesProvider.setOnPreferenceChangeListener { _, newValue ->
+            val provider = (newValue as String).toInt()
+            rulesGeositeUrl.isVisible = provider == 3
+            rulesGeoipUrl.isVisible = provider == 3
+            true
+        }
+        rulesGeositeUrl.isVisible = DataStore.rulesProvider == 3
+        rulesGeoipUrl.isVisible = DataStore.rulesProvider == 3
+    }
+
+    private fun setupDnsAdvancedScreen() {
+        findPreference<ListPreference>(Key.REMOTE_DNS_QUERY_STRATEGY)?.onPreferenceChangeListener = reloadListener
+        findPreference<EditTextPreference>(Key.EDNS_CLIENT_IP)?.onPreferenceChangeListener = reloadListener
+        findPreference<ListPreference>(Key.DIRECT_DNS_QUERY_STRATEGY)?.onPreferenceChangeListener = reloadListener
 
         val useLocalDnsAsBootstrapDns = findPreference<SwitchPreference>(Key.USE_LOCAL_DNS_AS_BOOTSTRAP_DNS)!!
         val bootstrapDns = findPreference<EditTextPreference>(Key.BOOTSTRAP_DNS)!!
@@ -529,11 +448,77 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         dnsHosts.dialogMessage = getString(R.string.one_per_line_format, "example.com 127.0.0.1\nwww.example.com 127.0.0.1 127.0.0.2")
         dnsHosts.onPreferenceChangeListener = reloadListener
 
-        findPreference<SwitchPreference>(Key.ENABLE_DNS_ROUTING)!!.onPreferenceChangeListener = reloadListener
-        findPreference<SwitchPreference>(Key.ENABLE_FAKEDNS)!!.onPreferenceChangeListener = reloadListener
+        findPreference<SwitchPreference>(Key.ENABLE_DNS_ROUTING)?.onPreferenceChangeListener = reloadListener
+    }
 
-        // inbound settings
-        findPreference<SwitchPreference>(Key.ALLOW_ACCESS)!!.onPreferenceChangeListener = reloadListener
+    private fun setupTunNetworkScreen() {
+        val isVpn = DataStore.serviceMode == MODE_VPN
+        val tunImplementation = findPreference<ListPreference>(Key.TUN_IMPLEMENTATION)!!
+        val mtu = findPreference<EditTextPreference>(Key.MTU)!!
+        val meteredNetwork = findPreference<Preference>(Key.METERED_NETWORK)!!
+        val discardICMP = findPreference<SwitchPreference>(Key.DISCARD_ICMP)!!
+
+        tunImplementation.isEnabled = isVpn
+        tunImplementation.setOnPreferenceChangeListener { _, newValue ->
+            if ((newValue as String).toInt() == TunImplementation.SYSTEM && Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN && app.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED) {
+                MaterialAlertDialogBuilder(requireContext()).apply {
+                    setTitle(R.string.error_title)
+                    setMessage(R.string.nearby_devices_permission_notice)
+                    setNeutralButton(R.string.open_settings) { _, _ ->
+                        try {
+                            startActivity(Intent().apply {
+                                action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+                                data = Uri.fromParts("package", app.packageName, null)
+                            })
+                        } catch (e: Exception) {
+                            snackbar(e.readableMessage).show()
+                        }
+                    }
+                    setPositiveButton(android.R.string.ok, null)
+                }.show()
+            }
+            if (SagerNet.started) {
+                runOnDefaultDispatcher {
+                    SagerNet.reloadService()
+                }
+            }
+            true
+        }
+        mtu.isEnabled = isVpn
+        mtu.setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
+        mtu.onPreferenceChangeListener = reloadListener
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            meteredNetwork.remove()
+        } else {
+            meteredNetwork.isEnabled = isVpn
+            meteredNetwork.onPreferenceChangeListener = reloadListener
+        }
+        discardICMP.isEnabled = isVpn
+        discardICMP.onPreferenceChangeListener = reloadListener
+        findPreference<SwitchPreference>(Key.ACQUIRE_WAKE_LOCK)?.onPreferenceChangeListener = reloadListener
+    }
+
+    private fun setupProtocolScreen() {
+        val enableFragment = findPreference<SwitchPreference>(Key.ENABLE_FRAGMENT)!!
+        val enableFragmentForDirect = findPreference<SwitchPreference>(Key.ENABLE_FRAGMENT_FOR_DIRECT)!!
+        val fragmentMethod = findPreference<ListPreference>(Key.FRAGMENT_METHOD)!!
+        enableFragment.setOnPreferenceChangeListener { _, newValue ->
+            newValue as Boolean
+            enableFragmentForDirect.isVisible = newValue
+            fragmentMethod.isVisible = newValue
+            true
+        }
+        enableFragmentForDirect.isVisible = enableFragment.isChecked
+        fragmentMethod.isVisible = enableFragment.isChecked
+    }
+
+    private fun setupInboundScreen() {
+        val isVpn = DataStore.serviceMode == MODE_VPN
+        val requireHttp = findPreference<SwitchPreference>(Key.REQUIRE_HTTP)!!
+        val httpUsername = findPreference<EditTextPreference>(Key.HTTP_USERNAME)!!
+        val httpPassword = findPreference<EditTextPreference>(Key.HTTP_PASSWORD)!!
+        val appendHttpProxy = findPreference<SwitchPreference>(Key.APPEND_HTTP_PROXY)!!
+        val httpProxyException = findPreference<EditTextPreference>(Key.HTTP_PROXY_EXCEPTION)!!
 
         val allowAccess = findPreference<SwitchPreference>(Key.ALLOW_ACCESS)!!
         allowAccess.setOnPreferenceChangeListener { _, newValue ->
@@ -577,9 +562,9 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
                 MaterialAlertDialogBuilder(requireContext()).apply {
                     setMessage(R.string.socks5_udp_authentication_warning)
                     setPositiveButton(android.R.string.ok, null)
-                    setNeutralButton(R.string.do_not_show_again, { _, _ ->
+                    setNeutralButton(R.string.do_not_show_again) { _, _ ->
                         DataStore.socksUDPWarningDisable = true
-                    })
+                    }
                 }.show()
             }
             needReload()
@@ -594,9 +579,9 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
                 MaterialAlertDialogBuilder(requireContext()).apply {
                     setMessage(R.string.socks5_udp_authentication_warning)
                     setPositiveButton(android.R.string.ok, null)
-                    setNeutralButton(R.string.do_not_show_again, { _, _ ->
+                    setNeutralButton(R.string.do_not_show_again) { _, _ ->
                         DataStore.socksUDPWarningDisable = true
-                    })
+                    }
                 }.show()
             }
             needReload()
@@ -611,9 +596,9 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
                 MaterialAlertDialogBuilder(requireContext()).apply {
                     setMessage(R.string.socks5_udp_authentication_warning)
                     setPositiveButton(android.R.string.ok, null)
-                    setNeutralButton(R.string.do_not_show_again, { _, _ ->
+                    setNeutralButton(R.string.do_not_show_again) { _, _ ->
                         DataStore.socksUDPWarningDisable = true
-                    })
+                    }
                 }.show()
             }
             needReload()
@@ -637,12 +622,12 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             httpUsername.onPreferenceChangeListener = reloadListener
         } else {
-            httpUsername.onPreferenceChangeListener = { _, newValue ->
+            httpUsername.setOnPreferenceChangeListener { _, newValue ->
                 newValue as String
-                appendHttpProxy.isVisible = serviceMode.value == MODE_VPN && newValue.isEmpty() && httpPassword.isVisible && httpPassword.text.isNullOrEmpty()
-                httpProxyException.isVisible = serviceMode.value == MODE_VPN && newValue.isEmpty()
+                appendHttpProxy.isVisible = isVpn && newValue.isEmpty() && httpPassword.isVisible && httpPassword.text.isNullOrEmpty()
+                httpProxyException.isVisible = isVpn && newValue.isEmpty()
                         && appendHttpProxy.isVisible && appendHttpProxy.isChecked
-                        && newValue.isEmpty() && httpPassword.isVisible && httpPassword.text.isNullOrEmpty()
+                        && httpPassword.isVisible && httpPassword.text.isNullOrEmpty()
                 needReload()
                 true
             }
@@ -652,12 +637,12 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             httpPassword.onPreferenceChangeListener = reloadListener
         } else {
-            httpPassword.onPreferenceChangeListener = { _, newValue ->
+            httpPassword.setOnPreferenceChangeListener { _, newValue ->
                 newValue as String
-                appendHttpProxy.isVisible = serviceMode.value == MODE_VPN && newValue.isEmpty() && httpUsername.isVisible && httpUsername.text.isNullOrEmpty()
-                httpProxyException.isVisible = serviceMode.value == MODE_VPN && newValue.isEmpty()
+                appendHttpProxy.isVisible = isVpn && newValue.isEmpty() && httpUsername.isVisible && httpUsername.text.isNullOrEmpty()
+                httpProxyException.isVisible = isVpn && newValue.isEmpty()
                         && appendHttpProxy.isVisible && appendHttpProxy.isChecked
-                        && newValue.isEmpty() && httpUsername.isVisible && httpUsername.text.isNullOrEmpty()
+                        && httpUsername.isVisible && httpUsername.text.isNullOrEmpty()
                 needReload()
                 true
             }
@@ -678,10 +663,10 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
                 portHttp.isVisible = newValue as Boolean
                 httpUsername.isVisible = newValue
                 httpPassword.isVisible = newValue
-                appendHttpProxy.isVisible = newValue && serviceMode.value == MODE_VPN
+                appendHttpProxy.isVisible = newValue && isVpn
                         && httpUsername.isVisible && httpUsername.text.isNullOrEmpty()
                         && httpPassword.isVisible && httpPassword.text.isNullOrEmpty()
-                httpProxyException.isVisible = newValue && serviceMode.value == MODE_VPN
+                httpProxyException.isVisible = newValue && isVpn
                         && appendHttpProxy.isVisible && appendHttpProxy.isChecked
                         && httpUsername.isVisible && httpUsername.text.isNullOrEmpty()
                         && httpPassword.isVisible && httpPassword.text.isNullOrEmpty()
@@ -689,7 +674,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
                 needReload()
                 true
             }
-            appendHttpProxy.isVisible = requireHttp.isChecked && serviceMode.value == MODE_VPN
+            appendHttpProxy.isVisible = requireHttp.isChecked && isVpn
                     && httpUsername.isVisible && httpUsername.text.isNullOrEmpty()
                     && httpPassword.isVisible && httpPassword.text.isNullOrEmpty()
             appendHttpProxy.setOnPreferenceChangeListener { _, newValue ->
@@ -697,7 +682,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
                 needReload()
                 true
             }
-            httpProxyException.isVisible = requireHttp.isChecked && serviceMode.value == MODE_VPN
+            httpProxyException.isVisible = requireHttp.isChecked && isVpn
                     && appendHttpProxy.isVisible && appendHttpProxy.isChecked
                     && httpUsername.isVisible && httpUsername.text.isNullOrEmpty()
                     && httpPassword.isVisible && httpPassword.text.isNullOrEmpty()
@@ -725,33 +710,89 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         portLocalDns.setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
         portLocalDns.isVisible = requireDns.isChecked
         portLocalDns.onPreferenceChangeListener = reloadListener
+    }
 
-        findPreference<EditTextPreference>(Key.PPROF_SERVER)!!.apply {
-            isVisible = DataStore.enableDebug
+    private fun setupDebugScreen() {
+        findPreference<ListPreference>(Key.LOG_LEVEL)?.setOnPreferenceChangeListener { _, newValue ->
+            if ((newValue as String).toInt() == LogLevel.DEBUG && !DataStore.logLevelDebugWarningDisable) {
+                MaterialAlertDialogBuilder(requireContext()).apply {
+                    setMessage(R.string.debug_log_sum)
+                    setPositiveButton(android.R.string.ok, null)
+                    setNeutralButton(R.string.do_not_show_again) { _, _ ->
+                        DataStore.logLevelDebugWarningDisable = true
+                    }
+                }.show()
+            }
+            needReload()
+            true
         }
 
-        findPreference<EditTextPreference>(Key.GODEBUG)!!.apply {
-            isVisible = DataStore.enableDebug
+        findPreference<SwitchPreference>(Key.ENABLE_PCAP)?.apply {
+            isEnabled = DataStore.serviceMode == MODE_VPN && DataStore.tunImplementation == TunImplementation.GVISOR
+            setOnPreferenceChangeListener { _, newValue ->
+                if (newValue as Boolean) {
+                    val path = File(
+                        app.getExternalFilesDir(null)?.apply { mkdirs() } ?: app.filesDir,
+                        "pcap"
+                    ).canonicalPath
+                    MaterialAlertDialogBuilder(requireContext()).apply {
+                        setTitle(R.string.pcap)
+                        setMessage(resources.getString(R.string.pcap_notice, path))
+                        setPositiveButton(android.R.string.ok) { _, _ ->
+                            needReload()
+                        }
+                        setNegativeButton(android.R.string.copy) { _, _ ->
+                            SagerNet.trySetPrimaryClip(path)
+                            snackbar(R.string.copy_success).show()
+                        }
+                    }.show()
+                }
+                needReload()
+                true
+            }
         }
 
-        findPreference<EditTextPreference>(Key.ENVIRONMENT_VARIABLES)!!.apply {
-            isVisible = DataStore.enableDebug
-        }
-
-        findPreference<EditTextPreference>(Key.EXPERIMENTAL_FLAGS)!!.isVisible = DataStore.enableDebug
-
-        // misc settings
-        findPreference<SwitchPreference>(Key.SHOW_GROUP_NAME)!!.onPreferenceChangeListener = reloadListener
-        findPreference<SwitchPreference>(Key.ACQUIRE_WAKE_LOCK)!!.onPreferenceChangeListener = reloadListener
-        findPreference<ListPreference>(Key.FAB_STYLE)!!.setOnPreferenceChangeListener { _, _ ->
-            requireActivity().apply {
-                this.finish()
-                startActivity(intent)
+        findPreference<ListPreference>(Key.PROVIDER_ROOT_CA)?.setOnPreferenceChangeListener { _, newValue ->
+            if ((newValue as String).toInt() == RootCAProvider.CUSTOM) {
+                runOnMainDispatcher {
+                    val context = requireContext()
+                    MaterialAlertDialogBuilder(context)
+                        .setMessage(getString(R.string.custom_root_ca_hint, context.packageName))
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show()
+                }
             }
             true
         }
+
+        findPreference<EditTextPreference>(Key.PPROF_SERVER)?.isVisible = DataStore.enableDebug
+        findPreference<EditTextPreference>(Key.GODEBUG)?.isVisible = DataStore.enableDebug
+        findPreference<EditTextPreference>(Key.ENVIRONMENT_VARIABLES)?.isVisible = DataStore.enableDebug
+        findPreference<EditTextPreference>(Key.EXPERIMENTAL_FLAGS)?.isVisible = DataStore.enableDebug
     }
 
+    private fun updateGuiseScreenSummaries() {
+        findPreference<Preference>("screen_byedpi")?.let { pref ->
+            pref.summary = if (DataStore.byedpiEnabled) {
+                val args = DataStore.byedpiArgs.trim().ifEmpty { ByeDPI.DEFAULT_ARGS }
+                "${getString(R.string.settings_status_enabled)} · $args"
+            } else {
+                getString(R.string.settings_status_disabled)
+            }
+        }
+        findPreference<Preference>("screen_dual_net")?.let { pref ->
+            pref.summary = if (DataStore.dualNetEnabled) {
+                val strategy = if (DataStore.dualNetStrategy == DualNet.Strategy.AUTO) {
+                    getString(R.string.dual_net_strategy_auto)
+                } else {
+                    getString(R.string.dual_net_strategy_fixed)
+                }
+                "${getString(R.string.settings_status_enabled)} · $strategy"
+            } else {
+                getString(R.string.settings_status_disabled)
+            }
+        }
+    }
 
     private fun updateByeDPIAutoStatus() {
         val pref = findPreference<Preference>(Key.BYEDPI_AUTO_STATUS) ?: return
@@ -786,9 +827,8 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
     override fun onResume() {
         super.onResume()
 
-        if (::isProxyApps.isInitialized) {
-            isProxyApps.isChecked = DataStore.proxyApps
-        }
+        isProxyApps?.isChecked = DataStore.proxyApps
+        updateGuiseScreenSummaries()
         updateDualNetStatus()
         updateByeDPIAutoStatus()
         // Guise: the connectivity test may have changed the ByeDPI arguments.
