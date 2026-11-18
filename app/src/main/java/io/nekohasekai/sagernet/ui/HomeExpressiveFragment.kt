@@ -229,7 +229,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         binding.btnSmartScan.isEnabled = false
         scanJob = runOnDefaultDispatcher {
             val result = SmartDataSaver.scanAndSave { progress ->
-                runOnMainDispatcher {
+                activity?.runOnUiThread {
                     if (_binding != null) {
                         binding.btnSmartScan.text = getString(
                             R.string.home_smart_scanning,
