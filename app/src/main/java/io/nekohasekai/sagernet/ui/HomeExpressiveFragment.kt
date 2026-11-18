@@ -25,6 +25,7 @@ import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
 import android.view.animation.LinearInterpolator
+import android.view.animation.OvershootInterpolator
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
@@ -35,7 +36,8 @@ import io.nekohasekai.sagernet.ProtectionMode
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.bg.BaseService
-import io.nekohasekai.sagernet.byedpi.SmartDataSaver
+import io.nekohasekai.sagernet.byedpi.ByeDPILearningStore
+import io.nekohasekai.sagernet.byedpi.CdnDpiScanner
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.databinding.FragmentHomeExpressiveBinding
@@ -68,26 +70,45 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             insets
         }
 
-        binding.heroButton.setOnClickListener {
-            it.animate().scaleX(0.91f).scaleY(0.91f).setDuration(90).withEndAction {
-                it.animate().scaleX(1f).scaleY(1f)
-                    .setInterpolator(android.view.animation.OvershootInterpolator(1.8f))
-                    .setDuration(260)
-                    .start()
+        val toggleClick = View.OnClickListener {
+            binding.heroButton.animate().scaleX(0.90f).scaleY(0.90f).setDuration(90).withEndAction {
+                if (_binding != null) {
+                    binding.heroButton.animate().scaleX(1f).scaleY(1f)
+                        .setInterpolator(OvershootInterpolator(1.8f))
+                        .setDuration(260)
+                        .start()
+                }
             }.start()
             (activity as? MainActivity)?.toggleService()
         }
+        binding.heroButton.setOnClickListener(toggleClick)
+        binding.heroCard.setOnClickListener(toggleClick)
 
         binding.modePill.setOnClickListener {
             showProtectionModeDialog()
+        }
+
+        binding.nodeInfoCard.setOnClickListener {
+            (activity as? MainActivity)?.let { main ->
+                main.displayFragmentWithId(R.id.nav_nodes)
+                main.binding.bottomNav.selectedItemId = R.id.nav_nodes
+            }
         }
 
         binding.exitIpCard.setOnClickListener {
             val state = (activity as? MainActivity)?.state ?: BaseService.State.Idle
             if (state == BaseService.State.Connected) {
                 refreshExitIp()
+            } else {
+                (activity as? MainActivity)?.toggleService()
             }
         }
+
+        val learningClick = View.OnClickListener {
+            showCdnLearningDialog()
+        }
+        binding.learningCountChip.setOnClickListener(learningClick)
+        binding.learningHeaderRow.setOnClickListener(learningClick)
 
         binding.btnSmartScan.setOnClickListener {
             showSmartScanPicker()
@@ -110,71 +131,92 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         val ctx = context ?: return
         val connected = state == BaseService.State.Connected
         val connecting = state == BaseService.State.Connecting
+        val active = connected || connecting
+
+        binding.statusSubtitleTop.text = when {
+            connected -> getString(R.string.home_subtitle_running)
+            connecting -> getString(R.string.connecting)
+            else -> getString(R.string.home_subtitle_ready)
+        }
 
         binding.statusDisplay.text = when {
             connected -> getString(R.string.home_status_connected)
             connecting -> getString(R.string.connecting)
             else -> getString(R.string.home_status_disconnected)
         }
-        binding.statusDisplay.setTextColor(
-            MaterialColors.getColor(
-                ctx,
-                if (connected) androidx.appcompat.R.attr.colorPrimary
-                else com.google.android.material.R.attr.colorOnSurface,
-                0,
-            )
+
+        val heroBg = MaterialColors.getColor(
+            ctx,
+            if (active) com.google.android.material.R.attr.colorPrimaryContainer
+            else com.google.android.material.R.attr.colorSurfaceContainer,
+            0,
         )
+        val heroFg = MaterialColors.getColor(
+            ctx,
+            if (active) com.google.android.material.R.attr.colorOnPrimaryContainer
+            else com.google.android.material.R.attr.colorOnSurface,
+            0,
+        )
+        binding.heroCard.setCardBackgroundColor(heroBg)
+        binding.statusSubtitleTop.setTextColor(heroFg)
+        binding.statusDisplay.setTextColor(heroFg)
+        binding.heroModeSubtitle.setTextColor(heroFg)
+        binding.heroOrbit.imageTintList = ColorStateList.valueOf(heroFg)
 
-        binding.heroActionLabel.text = when {
-            state.canStop -> getString(R.string.home_tap_stop)
-            else -> getString(R.string.home_tap_start)
-        }
-
-        // Expressive shape morph: circle (82dp) when idle -> rounded squircle (41dp) when connected
-        val targetRadius = dp2px(if (connected || connecting) 41 else 82).toFloat()
+        // Expressive shape morph: circle (32dp radius on 64dp button) when idle <-> squircle (22dp) when connected
+        val targetRadius = dp2px(if (active) 22 else 32).toFloat()
         if (binding.heroButton.radius != targetRadius) {
             ValueAnimator.ofFloat(binding.heroButton.radius, targetRadius).apply {
-                duration = 320
-                interpolator = android.view.animation.OvershootInterpolator(1.2f)
-                addUpdateListener { binding.heroButton.radius = it.animatedValue as Float }
+                duration = 360
+                interpolator = OvershootInterpolator(1.4f)
+                addUpdateListener {
+                    if (_binding != null) {
+                        binding.heroButton.radius = it.animatedValue as Float
+                    }
+                }
                 start()
             }
         }
 
-        val bgColor = MaterialColors.getColor(
+        val btnBg = MaterialColors.getColor(
             ctx,
-            if (connected) androidx.appcompat.R.attr.colorPrimary
+            if (active) androidx.appcompat.R.attr.colorPrimary
             else com.google.android.material.R.attr.colorPrimaryContainer,
             0,
         )
-        val fgColor = MaterialColors.getColor(
+        val btnFg = MaterialColors.getColor(
             ctx,
-            if (connected) com.google.android.material.R.attr.colorOnPrimary
+            if (active) com.google.android.material.R.attr.colorOnPrimary
             else com.google.android.material.R.attr.colorOnPrimaryContainer,
             0,
         )
-        binding.heroButton.setCardBackgroundColor(bgColor)
-        binding.heroIcon.imageTintList = ColorStateList.valueOf(fgColor)
-        binding.heroActionLabel.setTextColor(fgColor)
+        binding.heroButton.setCardBackgroundColor(btnBg)
+        binding.heroIcon.imageTintList = ColorStateList.valueOf(btnFg)
 
         updateOrbitAnimation(connected, connecting)
-        updateModeAndSmartSplit()
+        updateModeAndCards()
 
         if (connected) {
             refreshExitIp()
         } else {
             exitIpJob?.cancel()
-            binding.exitIpText.text = getString(R.string.home_exit_unknown)
+            binding.exitCountryText.text = getString(R.string.home_exit_not_connected)
+            binding.exitIpText.text = getString(R.string.home_exit_tap_to_check)
         }
     }
 
     private fun updateOrbitAnimation(connected: Boolean, connecting: Boolean) {
         if (connected || connecting) {
-            binding.heroOrbit.animate().alpha(if (connected) 0.9f else 0.6f).setDuration(250).start()
+            binding.heroOrbit.animate().alpha(if (connected) 0.90f else 0.65f).setDuration(250).start()
             val durationMs = if (connecting) 2200L else 6000L
             if (orbitAnimator == null || orbitAnimator?.duration != durationMs) {
                 orbitAnimator?.cancel()
-                orbitAnimator = ObjectAnimator.ofFloat(binding.heroOrbit, View.ROTATION, binding.heroOrbit.rotation, binding.heroOrbit.rotation + 360f).apply {
+                orbitAnimator = ObjectAnimator.ofFloat(
+                    binding.heroOrbit,
+                    View.ROTATION,
+                    binding.heroOrbit.rotation,
+                    binding.heroOrbit.rotation + 360f,
+                ).apply {
                     duration = durationMs
                     repeatCount = ObjectAnimator.INFINITE
                     interpolator = LinearInterpolator()
@@ -186,31 +228,54 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         } else {
             orbitAnimator?.cancel()
             orbitAnimator = null
-            binding.heroOrbit.animate().alpha(0.22f).setDuration(250).start()
+            binding.heroOrbit.animate().alpha(0.25f).setDuration(250).start()
         }
     }
 
-    private fun updateModeAndSmartSplit() {
+    private fun updateModeAndCards() {
         val mode = DataStore.protectionMode
-        binding.modeLabel.text = when (mode) {
+        val modeText = when (mode) {
             ProtectionMode.SMART_SPLIT -> getString(R.string.protection_mode_smart_split)
             ProtectionMode.STANDARD -> getString(R.string.protection_mode_standard)
             ProtectionMode.BALANCED -> getString(R.string.protection_mode_balanced)
             ProtectionMode.STRICT -> getString(R.string.protection_mode_strict)
             else -> getString(R.string.protection_mode_manual)
         }
+        binding.modeLabel.text = modeText
+        binding.heroModeSubtitle.text = modeText
 
         val isSmartSplit = mode == ProtectionMode.SMART_SPLIT
-        val canScan = isSmartSplit || (mode == ProtectionMode.MANUAL && DataStore.byedpiEnabled)
+        val showScanCard = isSmartSplit || mode == ProtectionMode.MANUAL
+
         binding.smartSplitRow.visibility = if (isSmartSplit) View.VISIBLE else View.GONE
-        binding.btnSmartScan.visibility = if (canScan) View.VISIBLE else View.GONE
+        binding.nodeMetaText.visibility = if (isSmartSplit) View.GONE else View.VISIBLE
+
+        binding.smartScanCard.visibility = if (showScanCard) View.VISIBLE else View.GONE
+        binding.protectionInfoCard.visibility = if (showScanCard) View.GONE else View.VISIBLE
+
+        if (showScanCard) {
+            val learningOn = DataStore.byedpiLearningMode
+            binding.learningStatusText.text = getString(
+                if (learningOn) R.string.home_learning_on_sub else R.string.home_learning_off_sub
+            )
+            val goodCount = ByeDPILearningStore.knownGoodDomains().size
+            val blockedCount = ByeDPILearningStore.blockedDomains().size
+            binding.learningCountText.text = getString(R.string.home_learning_counts, goodCount, blockedCount)
+        }
+
         runOnDefaultDispatcher {
-            val proxyName = runCatching {
-                SagerDatabase.proxyDao.getById(DataStore.selectedProxy)?.displayName()
-            }.getOrNull() ?: getString(R.string.profile_empty)
+            val proxy = runCatching { SagerDatabase.proxyDao.getById(DataStore.selectedProxy) }.getOrNull()
+            val proxyName = proxy?.displayName() ?: getString(R.string.profile_empty)
+            val meta = if (proxy != null) {
+                val type = proxy.displayType()
+                if (proxy.status == 1 && proxy.ping > 0) "$type · ${proxy.ping} ms" else type
+            } else {
+                getString(R.string.nav_nodes)
+            }
             onMainDispatcher {
                 if (_binding != null) {
                     binding.pillProxyName.text = proxyName
+                    binding.nodeMetaText.text = meta
                 }
             }
         }
@@ -225,7 +290,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
                 dialog.dismiss()
                 if (which != DataStore.protectionMode) {
                     DataStore.protectionMode = which
-                    updateModeAndSmartSplit()
+                    updateModeAndCards()
                     if (SagerNet.started) {
                         SagerNet.reloadService()
                     }
@@ -235,12 +300,50 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             .show()
     }
 
+    private fun showCdnLearningDialog() {
+        val ctx = context ?: return
+        val good = ByeDPILearningStore.knownGoodDomains()
+        val blocked = ByeDPILearningStore.blockedDomains()
+        val counts = ByeDPILearningStore.failCounts()
+        val learningOn = DataStore.byedpiLearningMode
+        val msg = buildString {
+            append("当前状态：").append(if (learningOn) "已开启" else "已关闭").append("\n\n")
+            append("• 已知可行域名 (${good.size}):\n")
+            if (good.isEmpty()) append("  (空)\n") else good.forEach { append("  ✓ $it\n") }
+            append("\n• 试探失败计数 (${counts.size}):\n")
+            if (counts.isEmpty()) append("  (空)\n") else counts.forEach { (d, c) -> append("  ! $d ($c/${ByeDPILearningStore.MAX_FAILURES})\n") }
+            append("\n• 已知不可行域名 (${blocked.size}):\n")
+            if (blocked.isEmpty()) append("  (空)\n") else blocked.forEach { append("  ✕ $it\n") }
+        }.trim()
+
+        val toggleLabel = if (learningOn) "关闭学习模式" else "开启学习模式"
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle(R.string.byedpi_learning_manage)
+            .setMessage(msg)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(toggleLabel) { _, _ ->
+                DataStore.byedpiLearningMode = !learningOn
+                updateModeAndCards()
+                if (SagerNet.started) {
+                    SagerNet.reloadService()
+                }
+            }
+            .setNeutralButton("重置失败与拉黑") { _, _ ->
+                ByeDPILearningStore.resetBlockedAndFailures()
+                updateModeAndCards()
+                if (SagerNet.started) {
+                    SagerNet.reloadService()
+                }
+            }
+            .show()
+    }
+
     private fun showSmartScanPicker() {
-        val services = SmartDataSaver.SERVICES
+        val services = CdnDpiScanner.SERVICES
         val labels = services.map { it.label }.toTypedArray()
         val checked = BooleanArray(services.size) { services[it].defaultSelected }
         MaterialAlertDialogBuilder(requireContext())
-            .setTitle(R.string.home_smart_scan)
+            .setTitle(R.string.home_cdn_scan_title)
             .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
                 checked[which] = isChecked
             }
@@ -256,19 +359,19 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             .show()
     }
 
-    private fun runSmartSplitScan(domains: List<String> = SmartDataSaver.candidateDomains()) {
+    private fun runSmartSplitScan(domains: List<String> = CdnDpiScanner.candidateDomains()) {
         if (scanJob?.isActive == true) return
         binding.btnSmartScan.isEnabled = false
         scanJob = runOnDefaultDispatcher {
-            val result = SmartDataSaver.scanAndSave(domains) { progress ->
+            val result = CdnDpiScanner.scanAndSave(domains) { progress ->
                 activity?.runOnUiThread {
                     if (_binding != null) {
                         val phaseLabel = when (progress.phase) {
-                            SmartDataSaver.Phase.RESOLVING_DNS -> "DNS"
-                            SmartDataSaver.Phase.PROBING_IPS -> "IP"
-                            SmartDataSaver.Phase.VERIFYING_BYEDPI -> "ByeDPI"
+                            CdnDpiScanner.Phase.RESOLVING_DNS -> "正在扫描 DoH DNS"
+                            CdnDpiScanner.Phase.PROBING_IPS -> "正在检测 TCP:443"
+                            CdnDpiScanner.Phase.VERIFYING_BYEDPI -> "正在验证 ByeDPI TLS"
                         }
-                        binding.btnSmartScan.text = "$phaseLabel (${progress.done}/${progress.total})"
+                        binding.btnSmartScan.text = "$phaseLabel (${progress.done}/${progress.total})..."
                     }
                 }
             }
@@ -276,6 +379,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
                 if (_binding != null && isAdded) {
                     binding.btnSmartScan.isEnabled = true
                     binding.btnSmartScan.text = getString(R.string.home_smart_scan)
+                    updateModeAndCards()
                     showScanResultDialog(result)
                     if (SagerNet.started) {
                         SagerNet.reloadService()
@@ -285,19 +389,30 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         }
     }
 
-    private fun showScanResultDialog(result: SmartDataSaver.ScanResult) {
+    private fun showScanResultDialog(result: CdnDpiScanner.ScanResult) {
         val ctx = context ?: return
+        val proxyTotal = result.strategyFailedDomains.size + result.ipBlockedDomains.size
         val sb = StringBuilder()
-        sb.append("• 可走 ByeDPI (${result.dpiDomains.size}):\n")
-        if (result.dpiDomains.isEmpty()) {
+
+        sb.append("• 可走 ByeDPI (${result.byedpiDomains.size}):\n")
+        if (result.byedpiDomains.isEmpty()) {
             sb.append("  (无)\n")
         } else {
-            result.dpiDomains.forEach { host ->
+            result.byedpiDomains.forEach { host ->
                 val cdn = result.cdnProviders[host]?.let { " [${it.displayName} ${it.asn}]" }.orEmpty()
                 sb.append("  ✓ $host$cdn\n")
             }
         }
-        sb.append("\n• 需走代理 / IP 阻断 (${result.ipBlockedDomains.size}):\n")
+
+        if (result.strategyFailedDomains.isNotEmpty()) {
+            sb.append("\n• ByeDPI 策略无效 · 走代理或更换参数 (${result.strategyFailedDomains.size}):\n")
+            result.strategyFailedDomains.forEach { host ->
+                val cdn = result.cdnProviders[host]?.let { " [${it.displayName} ${it.asn}]" }.orEmpty()
+                sb.append("  ⚡ $host$cdn\n")
+            }
+        }
+
+        sb.append("\n• IP 阻断 · 必须走代理 (${result.ipBlockedDomains.size}):\n")
         if (result.ipBlockedDomains.isEmpty()) {
             sb.append("  (无)\n")
         } else {
@@ -306,12 +421,14 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
                 sb.append("  ✕ $host$cdn\n")
             }
         }
-        if (result.failedDnsDomains.isNotEmpty()) {
-            sb.append("\n• DNS 解析失败 (${result.failedDnsDomains.size}):\n")
-            result.failedDnsDomains.forEach { sb.append("  ? $it\n") }
+
+        if (result.dnsFailedDomains.isNotEmpty()) {
+            sb.append("\n• DoH DNS 解析失败 (${result.dnsFailedDomains.size}):\n")
+            result.dnsFailedDomains.forEach { sb.append("  ? $it\n") }
         }
+
         MaterialAlertDialogBuilder(ctx)
-            .setTitle(getString(R.string.home_smart_scan_done, result.dpiDomains.size, result.ipBlockedDomains.size))
+            .setTitle(getString(R.string.home_smart_scan_done, result.byedpiDomains.size, proxyTotal))
             .setMessage(sb.toString().trim())
             .setPositiveButton(android.R.string.ok, null)
             .show()
@@ -319,18 +436,25 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
 
     private fun refreshExitIp() {
         exitIpJob?.cancel()
-        binding.exitIpText.text = getString(R.string.home_exit_detecting)
+        binding.exitCountryText.text = getString(R.string.home_exit_detecting)
+        binding.exitIpText.text = "..."
         exitIpJob = runOnDefaultDispatcher {
             val info = fetchExitIp()
             onMainDispatcher {
                 if (_binding != null) {
-                    binding.exitIpText.text = info ?: getString(R.string.home_exit_unknown)
+                    if (info != null) {
+                        binding.exitCountryText.text = info.first
+                        binding.exitIpText.text = info.second
+                    } else {
+                        binding.exitCountryText.text = getString(R.string.home_exit_unknown)
+                        binding.exitIpText.text = getString(R.string.home_exit_tap_to_refresh)
+                    }
                 }
             }
         }
     }
 
-    private fun fetchExitIp(): String? {
+    private fun fetchExitIp(): Pair<String, String>? {
         val proxy = if (DataStore.serviceMode != "vpn") {
             Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", DataStore.httpPort))
         } else null
@@ -339,7 +463,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             val conn = (proxy?.let { url.openConnection(it) } ?: url.openConnection()) as HttpURLConnection
             conn.connectTimeout = 5000
             conn.readTimeout = 5000
-            conn.setRequestProperty("User-Agent", "Guise/1.0")
+            conn.setRequestProperty("User-Agent", "Guise/2.0")
             try {
                 if (conn.responseCode != 200) return null
                 val json = JSONObject(conn.inputStream.bufferedReader().readText())
@@ -347,11 +471,12 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
                 val code = json.optString("country_code").uppercase()
                 val country = json.optString("country")
                 val flag = countryCodeToFlag(code)
-                if (flag.isNotEmpty() || country.isNotBlank()) {
-                    "$flag ${country.ifBlank { code }} · $ip".trim()
+                val countryLine = if (flag.isNotEmpty() || country.isNotBlank()) {
+                    "$flag ${country.ifBlank { code }}".trim()
                 } else {
                     ip
                 }
+                countryLine to ip
             } finally {
                 conn.disconnect()
             }

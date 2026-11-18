@@ -291,9 +291,18 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         val byedpiMode = findPreference<ListPreference>(Key.BYEDPI_MODE)!!
         val byedpiDomains = findPreference<EditTextPreference>(Key.BYEDPI_DOMAINS)!!
         val byedpiArgs = findPreference<EditTextPreference>(Key.BYEDPI_ARGS)!!
+        val isSmartSplit = DataStore.isSmartSplitMode
         fun updateByeDPIVisibility(enabled: Boolean, mode: Int) {
-            byedpiMode.isVisible = enabled
-            byedpiDomains.isVisible = enabled && mode == ByeDPI.Mode.DOMAINS
+            if (isSmartSplit) {
+                byedpiEnabled.isChecked = true
+                byedpiEnabled.isEnabled = false
+                byedpiEnabled.setSummary(R.string.protection_takeover_byedpi_smart)
+                byedpiMode.isVisible = false
+                byedpiDomains.isVisible = true
+            } else {
+                byedpiMode.isVisible = enabled
+                byedpiDomains.isVisible = enabled && mode == ByeDPI.Mode.DOMAINS
+            }
         }
         byedpiEnabled.setOnPreferenceChangeListener { _, newValue ->
             updateByeDPIVisibility(newValue as Boolean, DataStore.byedpiMode)
@@ -811,12 +820,15 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
     }
 
     private fun updateGuiseScreenSummaries(mode: Int = DataStore.protectionMode) {
-        val isManual = mode == ProtectionMode.MANUAL
+        val isProtectionLocked = mode >= ProtectionMode.STANDARD
         findPreference<Preference>("screen_byedpi")?.let { pref ->
-            pref.isEnabled = isManual
+            pref.isEnabled = !isProtectionLocked
             pref.summary = when {
-                mode == ProtectionMode.SMART_SPLIT -> getString(R.string.protection_takeover_byedpi_smart)
-                !isManual -> getString(R.string.protection_takeover_byedpi_disabled)
+                mode == ProtectionMode.SMART_SPLIT -> {
+                    val args = DataStore.byedpiArgs.trim().ifEmpty { ByeDPI.DEFAULT_ARGS }
+                    "${getString(R.string.protection_takeover_byedpi_smart)} · $args"
+                }
+                isProtectionLocked -> getString(R.string.protection_takeover_byedpi_disabled)
                 DataStore.byedpiEnabled -> {
                     val args = DataStore.byedpiArgs.trim().ifEmpty { ByeDPI.DEFAULT_ARGS }
                     "${getString(R.string.settings_status_enabled)} · $args"
@@ -825,9 +837,9 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             }
         }
         findPreference<Preference>("screen_dual_net")?.let { pref ->
-            pref.isEnabled = isManual
+            pref.isEnabled = !isProtectionLocked
             pref.summary = when {
-                !isManual -> getString(R.string.protection_takeover_dualnet)
+                isProtectionLocked -> getString(R.string.protection_takeover_dualnet)
                 DataStore.dualNetEnabled -> {
                     val strategy = if (DataStore.dualNetStrategy == DualNet.Strategy.AUTO) {
                         getString(R.string.dual_net_strategy_auto)

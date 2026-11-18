@@ -1779,7 +1779,27 @@ class ConfigurationFragment @JvmOverloads constructor(
                 val isSelected = entityId == adapter.activeSelectionId
                 val isStarted = SagerNet.started && DataStore.startedProfile == entityId
 
-                selectedView.visibility = if (isSelected) View.VISIBLE else View.INVISIBLE
+                if (DataStore.uiStyle == 0) {
+                    selectedView.visibility = View.GONE
+                    val card = view as? com.google.android.material.card.MaterialCardView
+                    val ctx = view.context
+                    val bg = com.google.android.material.color.MaterialColors.getColor(
+                        ctx,
+                        if (isSelected) com.google.android.material.R.attr.colorPrimaryContainer
+                        else com.google.android.material.R.attr.colorSurfaceContainerLow,
+                        0,
+                    )
+                    val fg = com.google.android.material.color.MaterialColors.getColor(
+                        ctx,
+                        if (isSelected) com.google.android.material.R.attr.colorOnPrimaryContainer
+                        else com.google.android.material.R.attr.colorOnSurface,
+                        0,
+                    )
+                    card?.setCardBackgroundColor(bg)
+                    profileName.setTextColor(fg)
+                } else {
+                    selectedView.visibility = if (isSelected) View.VISIBLE else View.INVISIBLE
+                }
                 deleteButton.isEnabled = !isStarted
             }
 

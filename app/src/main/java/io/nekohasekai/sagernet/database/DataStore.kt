@@ -234,7 +234,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
         }
     val effectiveDualNetEnabled: Boolean
         get() = when (protectionMode) {
-            ProtectionMode.MANUAL -> dualNetEnabled
+            ProtectionMode.MANUAL, ProtectionMode.SMART_SPLIT -> dualNetEnabled
             ProtectionMode.BALANCED, ProtectionMode.STRICT -> true
             else -> false
         }

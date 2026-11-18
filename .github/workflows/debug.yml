@@ -20,9 +20,9 @@ on:
         required: false
         default: false
       release_tag:
-        description: 'Optional GitHub Release tag to publish APK as pre-release (e.g. v1.0-rc2)'
+        description: 'Optional GitHub Release tag to publish APK as pre-release (e.g. v2.0-debug)'
         required: false
-        default: ''
+        default: 'v2.0-debug'
 jobs:
   build:
     name: Build

@@ -3185,7 +3185,10 @@ fun buildV2RayConfig(
             alerts,
             DataStore.enableFakeDns,
             byedpiPort,
-            outbounds.any { it.streamSettings?.sockopt?.mark == DualNet.SPLIT_MARK },
+            outbounds.any {
+                val mark = it.streamSettings?.sockopt?.mark
+                mark == DualNet.SPLIT_MARK || mark == DualNet.SPLIT_SHAPE_MARK
+            },
             byedpiLearningRelayPort,
             byedpiFallbackPort,
         )

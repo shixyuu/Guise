@@ -25,7 +25,7 @@ import java.net.InetAddress
 /**
  * Guise: Local ASN / IPv4 CIDR matcher for major CDN providers (Cloudflare AS13335, Fastly AS54113).
  *
- * Used by both [SmartDataSaver] and [ByeDPILearningRelay] to identify CDN-backed targets locally
+ * Used by both [CdnDpiScanner] and [ByeDPILearningRelay] to identify CDN-backed targets locally
  * without external API calls.
  */
 object CdnAsnMatcher {
