@@ -59,8 +59,7 @@ class ExpressiveAddNodeSheet : BottomSheetDialogFragment() {
 
         applySegmentedCorners(binding.cardClipboard, topOuter = true, bottomOuter = false)
         applySegmentedCorners(binding.cardQr, topOuter = false, bottomOuter = false)
-        applySegmentedCorners(binding.cardManual, topOuter = false, bottomOuter = false)
-        applySegmentedCorners(binding.cardByedpi, topOuter = false, bottomOuter = true)
+        applySegmentedCorners(binding.cardManual, topOuter = false, bottomOuter = true)
 
         val host = parentFragment as? ConfigurationFragment
 
@@ -77,27 +76,6 @@ class ExpressiveAddNodeSheet : BottomSheetDialogFragment() {
         binding.cardManual.setOnClickListener {
             dismiss()
             showProtocolPicker()
-        }
-
-        val allowByedpi = DataStore.protectionMode == ProtectionMode.MANUAL
-        binding.cardByedpi.isEnabled = allowByedpi
-        binding.cardByedpi.alpha = if (allowByedpi) 1.0f else 0.45f
-        if (!allowByedpi) {
-            binding.byedpiSubtitle.setText(R.string.byedpi_node_disabled_hint)
-        }
-        binding.cardByedpi.setOnClickListener {
-            if (!allowByedpi) return@setOnClickListener
-            dismiss()
-            runOnDefaultDispatcher {
-                ProfileManager.createProfile(DataStore.currentGroupId(), SOCKSBean().apply {
-                    name = getString(R.string.byedpi_profile_name)
-                    serverAddress = ByeDPI.PROFILE_MARKER_ADDRESS
-                    serverPort = 1080
-                })
-                onMainDispatcher {
-                    (activity as? MainActivity)?.snackbar(R.string.byedpi_profile_created)?.show()
-                }
-            }
         }
     }
 

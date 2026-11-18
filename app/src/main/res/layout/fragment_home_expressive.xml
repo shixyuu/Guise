@@ -25,11 +25,11 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="sans-serif-medium"
-            android:letterSpacing="-0.025"
+            android:letterSpacing="-0.03"
             android:maxLines="1"
             android:text="@string/home_status_disconnected"
             android:textColor="?attr/colorOnSurface"
-            android:textSize="40sp"
+            android:textSize="42sp"
             android:textStyle="bold" />
 
         <com.google.android.material.card.MaterialCardView

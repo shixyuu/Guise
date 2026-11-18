@@ -226,6 +226,22 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         }
         findPreference<SwitchPreference>(Key.ENABLE_FAKEDNS)?.onPreferenceChangeListener = reloadListener
 
+        findPreference<ListPreference>(Key.PROTECTION_MODE)?.setOnPreferenceChangeListener { _, newValue ->
+            val mode = (newValue as String).toIntOrNull() ?: ProtectionMode.MANUAL
+            updateGuiseScreenSummaries(mode)
+            needReload()
+            true
+        }
+        findPreference<ListPreference>(Key.UI_STYLE)?.setOnPreferenceChangeListener { _, newValue ->
+            DataStore.uiStyle = (newValue as String).toIntOrNull() ?: 0
+            val restart = Intent(requireContext(), MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            }
+            startActivity(restart)
+            requireActivity().finish()
+            true
+        }
+
         updateGuiseScreenSummaries()
     }
 

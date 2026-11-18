@@ -69,8 +69,11 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         }
 
         binding.heroButton.setOnClickListener {
-            it.animate().scaleX(0.93f).scaleY(0.93f).setDuration(90).withEndAction {
-                it.animate().scaleX(1f).scaleY(1f).setDuration(140).start()
+            it.animate().scaleX(0.91f).scaleY(0.91f).setDuration(90).withEndAction {
+                it.animate().scaleX(1f).scaleY(1f)
+                    .setInterpolator(android.view.animation.OvershootInterpolator(1.8f))
+                    .setDuration(260)
+                    .start()
             }.start()
             (activity as? MainActivity)?.toggleService()
         }
@@ -87,7 +90,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         }
 
         binding.btnSmartScan.setOnClickListener {
-            runSmartSplitScan()
+            showSmartScanPicker()
         }
 
         refreshUi((activity as? MainActivity)?.state ?: BaseService.State.Idle)
@@ -113,17 +116,26 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             connecting -> getString(R.string.connecting)
             else -> getString(R.string.home_status_disconnected)
         }
+        binding.statusDisplay.setTextColor(
+            MaterialColors.getColor(
+                ctx,
+                if (connected) androidx.appcompat.R.attr.colorPrimary
+                else com.google.android.material.R.attr.colorOnSurface,
+                0,
+            )
+        )
 
         binding.heroActionLabel.text = when {
             state.canStop -> getString(R.string.home_tap_stop)
             else -> getString(R.string.home_tap_start)
         }
 
-        // Expressive morphing: circle (78dp) when idle -> soft squircle (44dp) when connected
-        val targetRadius = dp2px(if (connected || connecting) 44 else 78).toFloat()
+        // Expressive shape morph: circle (78dp) when idle -> rounded squircle (36dp) when connected
+        val targetRadius = dp2px(if (connected || connecting) 36 else 78).toFloat()
         if (binding.heroButton.radius != targetRadius) {
             ValueAnimator.ofFloat(binding.heroButton.radius, targetRadius).apply {
-                duration = 280
+                duration = 320
+                interpolator = android.view.animation.OvershootInterpolator(1.2f)
                 addUpdateListener { binding.heroButton.radius = it.animatedValue as Float }
                 start()
             }
@@ -224,11 +236,32 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             .show()
     }
 
-    private fun runSmartSplitScan() {
+    private fun showSmartScanPicker() {
+        val services = SmartDataSaver.SERVICES
+        val labels = services.map { it.label }.toTypedArray()
+        val checked = BooleanArray(services.size) { services[it].defaultSelected }
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.home_smart_scan)
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val selected = services.filterIndexed { index, _ -> checked[index] }
+                    .flatMap { it.hosts }
+                    .distinct()
+                if (selected.isNotEmpty()) {
+                    runSmartSplitScan(selected)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun runSmartSplitScan(domains: List<String> = SmartDataSaver.candidateDomains()) {
         if (scanJob?.isActive == true) return
         binding.btnSmartScan.isEnabled = false
         scanJob = runOnDefaultDispatcher {
-            val result = SmartDataSaver.scanAndSave { progress ->
+            val result = SmartDataSaver.scanAndSave(domains) { progress ->
                 activity?.runOnUiThread {
                     if (_binding != null) {
                         binding.btnSmartScan.text = getString(
