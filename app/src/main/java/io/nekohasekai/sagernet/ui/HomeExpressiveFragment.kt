@@ -21,35 +21,59 @@ package io.nekohasekai.sagernet.ui
 
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
+import android.app.Activity
+import android.content.Intent
 import android.content.res.ColorStateList
+import android.os.Build
 import android.os.Bundle
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.animation.LinearInterpolator
 import android.view.animation.OvershootInterpolator
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.ProtectionMode
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
+import io.nekohasekai.sagernet.TunImplementation
 import io.nekohasekai.sagernet.bg.BaseService
+import io.nekohasekai.sagernet.byedpi.ByeDPI
 import io.nekohasekai.sagernet.byedpi.ByeDPILearningStore
+import io.nekohasekai.sagernet.byedpi.ByeDPIProbe
 import io.nekohasekai.sagernet.byedpi.CdnDpiScanner
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.databinding.FragmentHomeExpressiveBinding
+import io.nekohasekai.sagernet.dualnet.DualNet
+import io.nekohasekai.sagernet.dualnet.DualNetworkManager
+import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
 import io.nekohasekai.sagernet.ktx.dp2px
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
+import io.nekohasekai.sagernet.utils.DefaultNetworkListener
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
-import java.net.HttpURLConnection
+import java.io.ByteArrayOutputStream
 import java.net.InetSocketAddress
-import java.net.Proxy
-import java.net.URL
+import java.net.Socket
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SNIHostName
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
 
 class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
 
@@ -59,6 +83,18 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
     private var orbitAnimator: ObjectAnimator? = null
     private var exitIpJob: Job? = null
     private var scanJob: Job? = null
+    private var dualEngineTickerJob: Job? = null
+
+    private val probeForSmartScanLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK || DataStore.byedpiStrategyTested) {
+            if (_binding != null && isAdded) {
+                updateModeAndCards()
+                showSmartScanPicker()
+            }
+        }
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -69,6 +105,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             v.updatePadding(top = bars.top)
             insets
         }
+        ViewCompat.requestApplyInsets(binding.homeRoot)
 
         val toggleClick = View.OnClickListener {
             binding.heroButton.animate().scaleX(0.90f).scaleY(0.90f).setDuration(90).withEndAction {
@@ -111,7 +148,19 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         binding.learningHeaderRow.setOnClickListener(learningClick)
 
         binding.btnSmartScan.setOnClickListener {
-            showSmartScanPicker()
+            if (!DataStore.byedpiStrategyTested) {
+                // Jump to ByeDPIProbeActivity first to test & apply a working ByeDPI strategy
+                val intent = Intent(requireContext(), ByeDPIProbeActivity::class.java).apply {
+                    putExtra(ByeDPIProbeActivity.EXTRA_FOR_SMART_SCAN, true)
+                }
+                probeForSmartScanLauncher.launch(intent)
+            } else {
+                showSmartScanPicker()
+            }
+        }
+
+        binding.btnProbeStrategy.setOnClickListener {
+            startActivity(Intent(requireContext(), ByeDPIProbeActivity::class.java))
         }
 
         refreshUi((activity as? MainActivity)?.state ?: BaseService.State.Idle)
@@ -120,6 +169,11 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
     override fun onResume() {
         super.onResume()
         refreshUi((activity as? MainActivity)?.state ?: BaseService.State.Idle)
+    }
+
+    override fun onPause() {
+        dualEngineTickerJob?.cancel()
+        super.onPause()
     }
 
     fun onServiceStateChanged(state: BaseService.State) {
@@ -145,23 +199,33 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             else -> getString(R.string.home_status_disconnected)
         }
 
+        // Subtle gray tonal step on Hero card (no harsh color inversion)
         val heroBg = MaterialColors.getColor(
             ctx,
-            if (active) com.google.android.material.R.attr.colorPrimaryContainer
+            if (active) com.google.android.material.R.attr.colorSurfaceContainerHigh
             else com.google.android.material.R.attr.colorSurfaceContainer,
             0,
         )
         val heroFg = MaterialColors.getColor(
             ctx,
-            if (active) com.google.android.material.R.attr.colorOnPrimaryContainer
-            else com.google.android.material.R.attr.colorOnSurface,
+            com.google.android.material.R.attr.colorOnSurface,
+            0,
+        )
+        val heroSubFg = MaterialColors.getColor(
+            ctx,
+            com.google.android.material.R.attr.colorOnSurfaceVariant,
+            0,
+        )
+        val primaryColor = MaterialColors.getColor(
+            ctx,
+            androidx.appcompat.R.attr.colorPrimary,
             0,
         )
         binding.heroCard.setCardBackgroundColor(heroBg)
-        binding.statusSubtitleTop.setTextColor(heroFg)
+        binding.statusSubtitleTop.setTextColor(heroSubFg)
         binding.statusDisplay.setTextColor(heroFg)
-        binding.heroModeSubtitle.setTextColor(heroFg)
-        binding.heroOrbit.imageTintList = ColorStateList.valueOf(heroFg)
+        binding.heroModeSubtitle.setTextColor(if (active) primaryColor else heroSubFg)
+        binding.heroOrbit.imageTintList = ColorStateList.valueOf(primaryColor)
 
         // Expressive shape morph: circle (32dp radius on 64dp button) when idle <-> squircle (22dp) when connected
         val targetRadius = dp2px(if (active) 22 else 32).toFloat()
@@ -180,26 +244,27 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
 
         val btnBg = MaterialColors.getColor(
             ctx,
-            if (active) androidx.appcompat.R.attr.colorPrimary
-            else com.google.android.material.R.attr.colorPrimaryContainer,
+            if (active) com.google.android.material.R.attr.colorPrimaryContainer
+            else com.google.android.material.R.attr.colorSurfaceContainerHighest,
             0,
         )
         val btnFg = MaterialColors.getColor(
             ctx,
-            if (active) com.google.android.material.R.attr.colorOnPrimary
-            else com.google.android.material.R.attr.colorOnPrimaryContainer,
+            if (active) com.google.android.material.R.attr.colorOnPrimaryContainer
+            else androidx.appcompat.R.attr.colorPrimary,
             0,
         )
         binding.heroButton.setCardBackgroundColor(btnBg)
         binding.heroIcon.imageTintList = ColorStateList.valueOf(btnFg)
 
         updateOrbitAnimation(connected, connecting)
-        updateModeAndCards()
+        updateModeAndCards(connected)
 
         if (connected) {
             refreshExitIp()
         } else {
             exitIpJob?.cancel()
+            binding.exitCardTitle.text = getString(R.string.home_exit_ip_label)
             binding.exitCountryText.text = getString(R.string.home_exit_not_connected)
             binding.exitIpText.text = getString(R.string.home_exit_tap_to_check)
         }
@@ -232,7 +297,9 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         }
     }
 
-    private fun updateModeAndCards() {
+    private fun updateModeAndCards(
+        connected: Boolean = ((activity as? MainActivity)?.state == BaseService.State.Connected)
+    ) {
         val mode = DataStore.protectionMode
         val modeText = when (mode) {
             ProtectionMode.SMART_SPLIT -> getString(R.string.protection_mode_smart_split)
@@ -246,21 +313,56 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
 
         val isSmartSplit = mode == ProtectionMode.SMART_SPLIT
         val showScanCard = isSmartSplit || mode == ProtectionMode.MANUAL
+        val dualNetEnabled = DataStore.effectiveDualNetEnabled
 
         binding.smartSplitRow.visibility = if (isSmartSplit) View.VISIBLE else View.GONE
         binding.nodeMetaText.visibility = if (isSmartSplit) View.GONE else View.VISIBLE
+
+        binding.dualEngineCard.visibility = if (dualNetEnabled) View.VISIBLE else View.GONE
+        if (dualNetEnabled) {
+            startDualEngineTicker(connected)
+        } else {
+            dualEngineTickerJob?.cancel()
+        }
 
         binding.smartScanCard.visibility = if (showScanCard) View.VISIBLE else View.GONE
         binding.protectionInfoCard.visibility = if (showScanCard) View.GONE else View.VISIBLE
 
         if (showScanCard) {
             val learningOn = DataStore.byedpiLearningMode
-            binding.learningStatusText.text = getString(
-                if (learningOn) R.string.home_learning_on_sub else R.string.home_learning_off_sub
-            )
-            val goodCount = ByeDPILearningStore.knownGoodDomains().size
-            val blockedCount = ByeDPILearningStore.blockedDomains().size
+            val strategyArgs = DataStore.byedpiArgs.trim().ifEmpty { ByeDPI.DEFAULT_ARGS }
+            binding.learningStatusText.text = if (DataStore.byedpiStrategyTested) {
+                "${if (learningOn) "自学习已开启" else "自学习已关闭"} · 当前策略: $strategyArgs"
+            } else {
+                "请先点击下方按钮完成 ByeDPI 策略测试"
+            }
+
+            val goodDomains = ByeDPILearningStore.knownGoodDomains()
+            val blockedDomains = ByeDPILearningStore.blockedDomains()
+            val failCounts = ByeDPILearningStore.failCounts()
+            val goodCount = goodDomains.size
+            val blockedCount = blockedDomains.size
+            val totalKnown = goodCount + blockedCount
+
             binding.learningCountText.text = getString(R.string.home_learning_counts, goodCount, blockedCount)
+
+            if (scanJob?.isActive != true) {
+                binding.btnSmartScan.text = if (DataStore.byedpiStrategyTested) {
+                    getString(R.string.home_smart_scan)
+                } else {
+                    "先测 ByeDPI 策略再扫描 CDN"
+                }
+                binding.learningSplitProgress.max = 100
+                val ratio = if (totalKnown > 0) ((goodCount * 100f) / totalKnown).toInt() else 0
+                binding.learningSplitProgress.setProgressCompat(ratio, true)
+                binding.learningProgressCaption.text = when {
+                    totalKnown > 0 -> "✓ ByeDPI 免流直连 $goodCount 个域名 ($ratio%) · 🛡️ 代理兜底 $blockedCount 个"
+                    !DataStore.byedpiStrategyTested -> "尚未测试策略 · 点击下方按钮将先进入策略测试"
+                    else -> "尚未扫描 · 点击下方按钮检测哪些常用网站可走 ByeDPI 直连"
+                }
+            }
+
+            populateLearnedDomainChips(goodDomains, failCounts, blockedDomains)
         }
 
         runOnDefaultDispatcher {
@@ -279,6 +381,165 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
                 }
             }
         }
+    }
+
+    private fun populateLearnedDomainChips(
+        goodDomains: List<String>,
+        failCounts: Map<String, Int>,
+        blockedDomains: List<String>,
+    ) {
+        val ctx = context ?: return
+        val row = binding.learningDomainsRow
+        row.removeAllViews()
+
+        val items = mutableListOf<Pair<String, Int>>() // text to style (0=good, 1=warn, 2=blocked, 3=more)
+        goodDomains.take(8).forEach { items.add("✓ $it" to 0) }
+        if (goodDomains.size > 8) {
+            items.add("+${goodDomains.size - 8} 个可直连" to 3)
+        }
+        failCounts.entries.take(3).forEach { (d, c) ->
+            items.add("! $d ($c/${ByeDPILearningStore.MAX_FAILURES})" to 1)
+        }
+        blockedDomains.take(3).forEach { items.add("✕ $it → 代理" to 2) }
+
+        if (items.isEmpty()) {
+            binding.learningDomainsScroll.visibility = View.GONE
+            return
+        }
+        binding.learningDomainsScroll.visibility = View.VISIBLE
+
+        val fgPrimary = MaterialColors.getColor(ctx, com.google.android.material.R.attr.colorOnSurface, 0)
+        val fgVariant = MaterialColors.getColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant, 0)
+
+        items.forEachIndexed { idx, (label, kind) ->
+            val tv = TextView(ctx).apply {
+                text = label
+                textSize = 10.5f
+                gravity = Gravity.CENTER
+                setPadding(dp2px(10), dp2px(4), dp2px(10), dp2px(4))
+                setBackgroundResource(R.drawable.bg_pill_secondary)
+                setTextColor(if (kind == 0) fgPrimary else fgVariant)
+                alpha = if (kind == 2) 0.78f else 0.95f
+                setOnClickListener { showCdnLearningDialog() }
+            }
+            val lp = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                if (idx > 0) marginStart = dp2px(6)
+            }
+            row.addView(tv, lp)
+        }
+    }
+
+    private fun startDualEngineTicker(connected: Boolean) {
+        dualEngineTickerJob?.cancel()
+        val mode = DataStore.protectionMode
+        val badgeText = when {
+            mode == ProtectionMode.STRICT -> "双路拆包 + 填充"
+            mode == ProtectionMode.BALANCED -> "双路智能分流"
+            DataStore.effectiveDualNetStrategy == DualNet.Strategy.AUTO -> "智能权重"
+            else -> "1:1 并发轮询"
+        }
+        binding.dualEngineBadge.text = badgeText
+
+        if (!connected) {
+            binding.dualEngineSub.text = "未连接 · 启动后自动分配 Wi-Fi 与蜂窝流量"
+            binding.dualEngineFlowView.updateState(
+                flowing = false,
+                wifiShare = 0.5f,
+                cellShare = 0.5f,
+                wifiDetail = "待命",
+                cellDetail = "待命",
+                coreLabel = badgeText,
+            )
+            return
+        }
+
+        dualEngineTickerJob = runOnDefaultDispatcher {
+            while (isActive) {
+                val parsed = parseDualNetStatus()
+                onMainDispatcher {
+                    if (_binding != null) {
+                        binding.dualEngineSub.text = parsed.summaryLine
+                        binding.dualEngineFlowView.updateState(
+                            flowing = true,
+                            wifiShare = parsed.wifiShare,
+                            cellShare = parsed.cellShare,
+                            wifiDetail = parsed.wifiDetail,
+                            cellDetail = parsed.cellDetail,
+                            coreLabel = parsed.coreLabel,
+                        )
+                    }
+                }
+                delay(2000L)
+            }
+        }
+    }
+
+    private data class DualEngineUiState(
+        val wifiShare: Float,
+        val cellShare: Float,
+        val wifiDetail: String,
+        val cellDetail: String,
+        val coreLabel: String,
+        val summaryLine: String,
+    )
+
+    private fun parseDualNetStatus(): DualEngineUiState {
+        val lines = runCatching { DualNetworkManager.statusFile.readLines() }.getOrNull()
+        if (lines == null || lines.size < 2) {
+            return DualEngineUiState(
+                wifiShare = 0.5f,
+                cellShare = 0.5f,
+                wifiDetail = "探测中",
+                cellDetail = "探测中",
+                coreLabel = "动态分配",
+                summaryLine = "双网引擎已就绪 · 正在采样实时链路质量",
+            )
+        }
+        val isSplit = lines[0].trim() == "split"
+        val statusLine = lines[1].trim()
+        var wifiPct = 0f
+        var cellPct = 0f
+        var wifiDetail = "未就绪"
+        var cellDetail = "未就绪"
+
+        val parts = statusLine.split("|").map { it.trim() }
+        for (part in parts) {
+            if (part.startsWith("WiFi")) {
+                wifiPct = Regex("""(\d+)%""").find(part)?.groupValues?.get(1)?.toFloatOrNull()?.div(100f)
+                    ?: if (isSplit) 0.5f else 1f
+                val rtt = Regex("""rtt=(\d+ms)""").find(part)?.groupValues?.get(1)
+                val conns = Regex("""conns=(\d+)""").find(part)?.groupValues?.get(1)
+                wifiDetail = listOfNotNull(rtt, conns?.let { "${it}连接" }).joinToString(" · ").ifEmpty { "在线" }
+            } else if (part.startsWith("LTE")) {
+                cellPct = Regex("""(\d+)%""").find(part)?.groupValues?.get(1)?.toFloatOrNull()?.div(100f)
+                    ?: if (isSplit) 0.5f else 0f
+                val rtt = Regex("""rtt=(\d+ms)""").find(part)?.groupValues?.get(1)
+                val conns = Regex("""conns=(\d+)""").find(part)?.groupValues?.get(1)
+                cellDetail = listOfNotNull(rtt, conns?.let { "${it}连接" }).joinToString(" · ").ifEmpty { "在线" }
+            }
+        }
+        if (wifiPct == 0f && cellPct == 0f) {
+            if (statusLine.contains("WiFi") && statusLine.contains("LTE")) {
+                wifiPct = 0.5f
+                cellPct = 0.5f
+            } else if (statusLine.contains("WiFi")) {
+                wifiPct = 1f
+            } else if (statusLine.contains("LTE")) {
+                cellPct = 1f
+            }
+        }
+        val coreLabel = if (isSplit) "双路并发" else "单网直通"
+        return DualEngineUiState(
+            wifiShare = wifiPct,
+            cellShare = cellPct,
+            wifiDetail = wifiDetail,
+            cellDetail = cellDetail,
+            coreLabel = coreLabel,
+            summaryLine = statusLine,
+        )
     }
 
     private fun showProtectionModeDialog() {
@@ -366,19 +627,23 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             val result = CdnDpiScanner.scanAndSave(domains) { progress ->
                 activity?.runOnUiThread {
                     if (_binding != null) {
-                        val phaseLabel = when (progress.phase) {
-                            CdnDpiScanner.Phase.RESOLVING_DNS -> "正在扫描 DoH DNS"
-                            CdnDpiScanner.Phase.PROBING_IPS -> "正在检测 TCP:443"
-                            CdnDpiScanner.Phase.VERIFYING_BYEDPI -> "正在验证 ByeDPI TLS"
+                        val (phaseIdx, phaseLabel) = when (progress.phase) {
+                            CdnDpiScanner.Phase.RESOLVING_DNS -> 1 to "1/3 DoH DNS 解析"
+                            CdnDpiScanner.Phase.PROBING_IPS -> 2 to "2/3 TCP:443 探测"
+                            CdnDpiScanner.Phase.VERIFYING_BYEDPI -> 3 to "3/3 ByeDPI TLS 验证"
                         }
-                        binding.btnSmartScan.text = "$phaseLabel (${progress.done}/${progress.total})..."
+                        val total = progress.total.coerceAtLeast(1)
+                        val pct = (((phaseIdx - 1) * 100 + (progress.done * 100 / total)) / 3).coerceIn(0, 100)
+                        binding.learningSplitProgress.max = 100
+                        binding.learningSplitProgress.setProgressCompat(pct, true)
+                        binding.learningProgressCaption.text = "正在执行 $phaseLabel (${progress.done}/${progress.total})..."
+                        binding.btnSmartScan.text = "$phaseLabel (${progress.done}/${progress.total})"
                     }
                 }
             }
             onMainDispatcher {
                 if (_binding != null && isAdded) {
                     binding.btnSmartScan.isEnabled = true
-                    binding.btnSmartScan.text = getString(R.string.home_smart_scan)
                     updateModeAndCards()
                     showScanResultDialog(result)
                     if (SagerNet.started) {
@@ -439,61 +704,188 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         binding.exitCountryText.text = getString(R.string.home_exit_detecting)
         binding.exitIpText.text = "..."
         exitIpJob = runOnDefaultDispatcher {
-            val info = fetchExitIp()
-            onMainDispatcher {
-                if (_binding != null) {
-                    if (info != null) {
-                        binding.exitCountryText.text = info.first
-                        binding.exitIpText.text = info.second
-                    } else {
-                        binding.exitCountryText.text = getString(R.string.home_exit_unknown)
-                        binding.exitIpText.text = getString(R.string.home_exit_tap_to_refresh)
+            val proxyBean = runCatching {
+                SagerDatabase.proxyDao.getById(DataStore.selectedProxy)?.requireBean()
+            }.getOrNull()
+            val isPureByedpiNode = proxyBean is SOCKSBean && proxyBean.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
+            val isDualPath = DataStore.effectiveByedpiEnabled && !isPureByedpiNode
+
+            if (isDualPath) {
+                // Both ByeDPI and Proxy are active: fetch both Proxy Exit IP and Direct/DPI Exit IP concurrently
+                val (proxyInfo, directInfo) = coroutineScope {
+                    val pDeferred = async { fetchProxyExitIp() }
+                    val dDeferred = async { fetchDirectExitIp() }
+                    pDeferred.await() to dDeferred.await()
+                }
+                onMainDispatcher {
+                    if (_binding != null) {
+                        binding.exitCardTitle.text = "双路出口 (代理 + DPI)"
+                        binding.exitCountryText.text = if (proxyInfo != null) {
+                            "代理 ${proxyInfo.shortFlagAndCode} · ${proxyInfo.ip}"
+                        } else {
+                            "代理 检测失败"
+                        }
+                        binding.exitIpText.text = if (directInfo != null) {
+                            "DPI  ${directInfo.shortFlagAndCode} · ${directInfo.ip}"
+                        } else {
+                            "DPI  检测失败"
+                        }
+                    }
+                }
+            } else {
+                val info = if (isPureByedpiNode) fetchDirectExitIp() else fetchProxyExitIp()
+                onMainDispatcher {
+                    if (_binding != null) {
+                        binding.exitCardTitle.text = getString(R.string.home_exit_ip_label)
+                        if (info != null) {
+                            binding.exitCountryText.text = info.fullCountryLine
+                            binding.exitIpText.text = info.ip
+                        } else {
+                            binding.exitCountryText.text = getString(R.string.home_exit_unknown)
+                            binding.exitIpText.text = getString(R.string.home_exit_tap_to_refresh)
+                        }
                     }
                 }
             }
         }
     }
 
-    private fun fetchExitIp(): Pair<String, String>? {
-        val proxy = if (DataStore.serviceMode != "vpn") {
-            Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", DataStore.httpPort))
-        } else null
-        return runCatching {
-            val url = URL("https://api.ip.sb/geoip")
-            val conn = (proxy?.let { url.openConnection(it) } ?: url.openConnection()) as HttpURLConnection
-            conn.connectTimeout = 5000
-            conn.readTimeout = 5000
-            conn.setRequestProperty("User-Agent", "Guise/2.0")
-            try {
-                if (conn.responseCode != 200) return null
-                val json = JSONObject(conn.inputStream.bufferedReader().readText())
-                val ip = json.optString("ip").takeIf { it.isNotBlank() } ?: return null
-                val code = json.optString("country_code").uppercase()
-                val country = json.optString("country")
-                val flag = countryCodeToFlag(code)
-                val countryLine = if (flag.isNotEmpty() || country.isNotBlank()) {
-                    "$flag ${country.ifBlank { code }}".trim()
-                } else {
-                    ip
-                }
-                countryLine to ip
-            } finally {
-                conn.disconnect()
+    private data class ExitIpInfo(
+        val ip: String,
+        val countryCode: String,
+        val countryName: String,
+    ) {
+        val flag: String
+            get() {
+                val code = countryCode.uppercase()
+                if (code.length != 2 || !code.all { it in 'A'..'Z' }) return ""
+                val first = Character.codePointAt(code, 0) - 'A'.code + 0x1F1E6
+                val second = Character.codePointAt(code, 1) - 'A'.code + 0x1F1E6
+                return String(Character.toChars(first)) + String(Character.toChars(second))
             }
-        }.getOrNull()
+
+        val shortFlagAndCode: String
+            get() = "$flag ${countryCode.ifBlank { "?" }}".trim()
+
+        val fullCountryLine: String
+            get() = "$flag ${countryName.ifBlank { countryCode }}".trim().ifEmpty { ip }
     }
 
-    private fun countryCodeToFlag(code: String): String {
-        if (code.length != 2 || !code.all { it in 'A'..'Z' }) return ""
-        val first = Character.codePointAt(code, 0) - 'A'.code + 0x1F1E6
-        val second = Character.codePointAt(code, 1) - 'A'.code + 0x1F1E6
-        return String(Character.toChars(first)) + String(Character.toChars(second))
+    /**
+     * Queries the Proxy Node's true exit IP by dialing 127.0.0.1:[DataStore.socksPort] with ATYP=0x03
+     * domain name ("ipinfo.io" / "ipwho.is"), which ConfigBuilder explicitly routes to TAG_AGENT.
+     */
+    private fun fetchProxyExitIp(): ExitIpInfo? {
+        val socksPort = DataStore.socksPort
+        val endpoints = listOf(
+            "ipinfo.io" to "/json",
+            "ipwho.is" to "/",
+        )
+        for ((host, path) in endpoints) {
+            var raw: Socket? = null
+            try {
+                raw = CdnDpiScanner.dialSocks5Domain(socksPort, host, 443, 6000)
+                val body = httpsGetOverSocket(raw, host, path, 6000) ?: continue
+                parseExitIpJson(body)?.let { return it }
+            } catch (_: Exception) {
+            } finally {
+                runCatching { raw?.close() }
+            }
+        }
+        return null
+    }
+
+    /**
+     * Queries the Direct / ByeDPI exit IP over the physical network (bypassing the proxy outbound).
+     */
+    private suspend fun fetchDirectExitIp(): ExitIpInfo? {
+        val vpnIncludesSelf = SagerNet.started &&
+            DataStore.serviceMode == Key.MODE_VPN &&
+            DataStore.tunImplementation == TunImplementation.SYSTEM
+        val listenerKey = Any()
+        val underlying = if (vpnIncludesSelf) {
+            DefaultNetworkListener.start(listenerKey) {}
+            withTimeoutOrNull(2500L) { runCatching { DefaultNetworkListener.get() }.getOrNull() }
+        } else null
+        try {
+            val endpoints = listOf(
+                Triple("api.ip.sb", "104.26.12.31", "/geoip"),
+                Triple("1.1.1.1", "1.1.1.1", "/cdn-cgi/trace"),
+            )
+            for ((host, ip, path) in endpoints) {
+                var raw: Socket? = null
+                try {
+                    raw = Socket()
+                    underlying?.bindSocket(raw)
+                    raw.soTimeout = 5000
+                    raw.connect(InetSocketAddress(ip, 443), 5000)
+                    val body = httpsGetOverSocket(raw, host, path, 5000) ?: continue
+                    parseExitIpJson(body)?.let { return it }
+                } catch (_: Exception) {
+                } finally {
+                    runCatching { raw?.close() }
+                }
+            }
+            return null
+        } finally {
+            if (vpnIncludesSelf) DefaultNetworkListener.stop(listenerKey)
+        }
+    }
+
+    private fun httpsGetOverSocket(raw: Socket, host: String, path: String, timeoutMs: Int): String? {
+        val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+            .createSocket(raw, host, 443, true) as SSLSocket
+        ssl.soTimeout = timeoutMs
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !host.all { it.isDigit() || it == '.' }) {
+            ssl.sslParameters = ssl.sslParameters.apply { serverNames = listOf(SNIHostName(host)) }
+        }
+        ssl.startHandshake()
+        if (!HttpsURLConnection.getDefaultHostnameVerifier().verify(host, ssl.session)) {
+            return null
+        }
+        ssl.getOutputStream().apply {
+            write(
+                ("GET $path HTTP/1.1\r\nHost: $host\r\nUser-Agent: curl/8.5.0\r\n" +
+                    "Accept: application/json, text/plain\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n")
+                    .toByteArray()
+            )
+            flush()
+        }
+        val sink = ByteArrayOutputStream()
+        val code = ByeDPIProbe.readResponse(ssl.getInputStream(), sink = sink) ?: return null
+        return if (code == 200) sink.toString("UTF-8") else null
+    }
+
+    private fun parseExitIpJson(raw: String): ExitIpInfo? {
+        val trimmed = raw.trim()
+        if (!trimmed.startsWith("{")) {
+            // Cloudflare /cdn-cgi/trace key=value format
+            val map = trimmed.lines().mapNotNull { line ->
+                val idx = line.indexOf('=')
+                if (idx > 0) line.substring(0, idx).trim() to line.substring(idx + 1).trim() else null
+            }.toMap()
+            val ip = map["ip"]?.takeIf { it.isNotBlank() } ?: return null
+            val cc = map["loc"].orEmpty().uppercase()
+            return ExitIpInfo(ip = ip, countryCode = cc, countryName = cc)
+        }
+        return runCatching {
+            val json = JSONObject(trimmed)
+            val ip = json.optString("ip").takeIf { it.isNotBlank() } ?: return null
+            val code = json.optString("country_code")
+                .ifBlank { json.optString("country") }
+                .take(2)
+                .uppercase()
+            val country = json.optString("country_name")
+                .ifBlank { json.optString("country") }
+            ExitIpInfo(ip = ip, countryCode = code, countryName = country)
+        }.getOrNull()
     }
 
     override fun onDestroyView() {
         orbitAnimator?.cancel()
         orbitAnimator = null
         exitIpJob?.cancel()
+        dualEngineTickerJob?.cancel()
         super.onDestroyView()
         _binding = null
     }

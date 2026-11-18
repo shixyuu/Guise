@@ -483,6 +483,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                             .setView(edit)
                             .setPositiveButton(android.R.string.ok) { _, _ ->
                                 DataStore.byedpiArgs = edit.text.toString().trim()
+                                DataStore.byedpiStrategyTested = true
                                 if (SagerNet.started) SagerNet.reloadService()
                             }
                             .setNegativeButton(android.R.string.cancel, null)

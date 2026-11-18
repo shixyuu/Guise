@@ -439,10 +439,10 @@ fun buildV2RayConfig(
                     }
                 })
             }
-            if (DataStore.requireSocks) {
+            if (DataStore.requireSocks || !forExport) {
                 inbounds.add(InboundObject().apply {
                     tag = TAG_SOCKS
-                    listen = bind
+                    listen = if (DataStore.requireSocks) bind else LOCALHOST
                     port = DataStore.socksPort
                     protocol = "socks"
                     settings = LazyInboundConfigurationObject(this, SocksInboundConfigurationObject().apply {
@@ -3156,6 +3156,12 @@ fun buildV2RayConfig(
         }
 
         if (!forTest) {
+            // Guise: ensure proxy exit IP detection endpoints always route through the proxy node (TAG_AGENT)
+            routing.rules.add(0, RoutingObject.RuleObject().apply {
+                type = "field"
+                domains = listOf("domain:ipinfo.io", "domain:ipwho.is")
+                outboundTag = TAG_AGENT
+            })
             routing.rules.add(0, RoutingObject.RuleObject().apply {
                 type = "field"
                 inboundTag = listOf(TAG_DNS_IN)

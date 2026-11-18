@@ -26,7 +26,6 @@ import io.nekohasekai.sagernet.TunImplementation
 import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.VpnService
 import io.nekohasekai.sagernet.byedpi.ByeDPI
-import io.nekohasekai.sagernet.byedpi.ByeDPIAutoStrategy
 import io.nekohasekai.sagernet.dualnet.DualNetworkManager
 import libexclavecore.Libexclavecore
 import io.nekohasekai.sagernet.database.DataStore
@@ -105,16 +104,9 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
         }
     }
 
-    private var byedpiAuto: ByeDPIAutoStrategy? = null
-
     override fun launch() {
         startDualNetwork()
         super.launch()
-        if (DataStore.byedpiAuto && config.byedpiPort > 0) {
-            // Guise: automatic ByeDPI strategy selection
-            byedpiAuto = ByeDPIAutoStrategy(DataStore.byedpiAutoInterval) { args -> restartByeDPI(args) }
-                .also { it.start() }
-        }
 
         if (config.observerTag.isNotEmpty()) {
             v2rayPoint.setStatusUpdateListener(config.observerTag, this)
@@ -222,8 +214,6 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
     override fun close() {
         SagerNet.started = false
 
-        byedpiAuto?.stop()
-        byedpiAuto = null
         persistStats()
         super.close()
 

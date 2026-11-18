@@ -407,6 +407,63 @@ object CdnDpiScanner {
         }
     }
 
+    /**
+     * Pure Kotlin SOCKS5 domain dialer (ATYP=0x03).
+     * Sends [targetHost]:[targetPort] directly to 127.0.0.1:[socksPort] so sing-box matches domain rules.
+     */
+    fun dialSocks5Domain(
+        socksPort: Int,
+        targetHost: String,
+        targetPort: Int,
+        timeoutMs: Int,
+    ): Socket {
+        val sock = Socket()
+        try {
+            sock.tcpNoDelay = true
+            sock.soTimeout = timeoutMs
+            sock.connect(InetSocketAddress("127.0.0.1", socksPort), timeoutMs)
+            val out = sock.getOutputStream()
+            val input = DataInputStream(sock.getInputStream())
+
+            out.write(byteArrayOf(0x05, 0x01, 0x00))
+            out.flush()
+            if (input.readUnsignedByte() != 0x05 || input.readUnsignedByte() != 0x00) {
+                throw IOException("SOCKS5 auth negotiation failed")
+            }
+
+            val hostBytes = targetHost.toByteArray(Charsets.UTF_8)
+            val req = ByteArray(4 + 1 + hostBytes.size + 2)
+            req[0] = 0x05
+            req[1] = 0x01
+            req[2] = 0x00
+            req[3] = 0x03
+            req[4] = hostBytes.size.toByte()
+            System.arraycopy(hostBytes, 0, req, 5, hostBytes.size)
+            req[5 + hostBytes.size] = ((targetPort ushr 8) and 0xFF).toByte()
+            req[6 + hostBytes.size] = (targetPort and 0xFF).toByte()
+            out.write(req)
+            out.flush()
+
+            val ver = input.readUnsignedByte()
+            val rep = input.readUnsignedByte()
+            input.readUnsignedByte()
+            when (val rAtyp = input.readUnsignedByte()) {
+                0x01 -> input.readFully(ByteArray(4))
+                0x03 -> input.readFully(ByteArray(input.readUnsignedByte()))
+                0x04 -> input.readFully(ByteArray(16))
+                else -> throw IOException("SOCKS5 unknown ATYP=$rAtyp")
+            }
+            input.readUnsignedShort()
+            if (ver != 0x05 || rep != 0x00) {
+                throw IOException("SOCKS5 domain connect failed: rep=$rep")
+            }
+            return sock
+        } catch (e: Exception) {
+            runCatching { sock.close() }
+            throw e
+        }
+    }
+
     private fun checkTcp443(address: InetAddress, network: Network?): Boolean {
         repeat(2) {
             val socket = Socket()

@@ -104,8 +104,7 @@ abstract class ThemedActivity : AppCompatActivity {
             } else {
                 insetController.isAppearanceLightNavigationBars = !Theme.usingNightMode()
             }
-            insetController.isAppearanceLightStatusBars =
-                if (DataStore.appTheme == Theme.BLACK) !Theme.usingNightMode() else false
+            insetController.isAppearanceLightStatusBars = !Theme.usingNightMode()
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { v, insets ->

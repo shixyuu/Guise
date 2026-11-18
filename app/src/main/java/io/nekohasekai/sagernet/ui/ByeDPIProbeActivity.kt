@@ -70,6 +70,10 @@ class ByeDPIProbeActivity : ThemedActivity(), SagerConnection.Callback {
     private var rows: List<ByeDPIProbe.Result> = emptyList()
     private var refreshPending = false
 
+    companion object {
+        const val EXTRA_FOR_SMART_SCAN = "for_smart_scan"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = LayoutByedpiProbeBinding.inflate(layoutInflater)
@@ -95,6 +99,10 @@ class ByeDPIProbeActivity : ThemedActivity(), SagerConnection.Callback {
         binding.start.setOnClickListener { if (job?.isActive == true) stop() else start() }
         connection.connect(this, this)
         updateSummary()
+        if (savedInstanceState == null && intent.getBooleanExtra(EXTRA_FOR_SMART_SCAN, false)) {
+            Toast.makeText(this, "正在测试 ByeDPI 策略，测试后请点击一条可用策略进行应用", Toast.LENGTH_LONG).show()
+            binding.root.post { start() }
+        }
     }
 
     override fun onDestroy() {
@@ -375,8 +383,13 @@ class ByeDPIProbeActivity : ThemedActivity(), SagerConnection.Callback {
             )
             .setPositiveButton(R.string.byedpi_probe_apply) { _, _ ->
                 DataStore.byedpiArgs = args
+                DataStore.byedpiStrategyTested = true
                 if (SagerNet.started) SagerNet.reloadService()
                 Toast.makeText(this, R.string.byedpi_probe_applied, Toast.LENGTH_SHORT).show()
+                if (intent.getBooleanExtra(EXTRA_FOR_SMART_SCAN, false)) {
+                    setResult(RESULT_OK)
+                    finish()
+                }
             }
             .setNeutralButton(R.string.byedpi_probe_copy) { _, _ ->
                 if (SagerNet.trySetPrimaryClip(args)) {

@@ -141,6 +141,9 @@ jobs:
           find artifacts -name "*.apk" -exec cp {} apks/ \;
           TAG="${{ github.event.inputs.release_tag }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
+            for asset in $(gh release view "$TAG" --json assets -q '.assets[].name' | grep '\.apk$' || true); do
+              gh release delete-asset "$TAG" "$asset" -y || true
+            done
             gh release upload "$TAG" --clobber ./apks/*
           else
             gh release create "$TAG" --title "$TAG" --notes "Debug build from Actions run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --prerelease ./apks/*

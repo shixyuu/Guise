@@ -24,6 +24,9 @@ import android.view.KeyEvent
 import android.view.View
 import androidx.appcompat.widget.Toolbar
 import androidx.core.view.GravityCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
 import io.nekohasekai.sagernet.R
 
@@ -37,6 +40,20 @@ open class ToolbarFragment : Fragment {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         toolbar = view.findViewById(R.id.toolbar)
+        view.findViewById<View>(R.id.appbar)?.let { appbar ->
+            ViewCompat.setOnApplyWindowInsetsListener(appbar) { v, insets ->
+                val bars = insets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+                )
+                v.updatePadding(
+                    top = bars.top,
+                    left = bars.left,
+                    right = bars.right,
+                )
+                insets
+            }
+            ViewCompat.requestApplyInsets(appbar)
+        }
         if (io.nekohasekai.sagernet.database.DataStore.uiStyle != 0) {
             toolbar.setNavigationIcon(R.drawable.ic_navigation_menu)
             toolbar.setNavigationOnClickListener {
