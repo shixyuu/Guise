@@ -24,8 +24,10 @@ package io.nekohasekai.sagernet.dualnet
  */
 object DualNet {
 
-    /** Must equal libexclavecore GuiseSplitMark. */
+    /** Must equal libexclavecore GuiseSplitMark / GuiseShapeMark / GuiseSplitShapeMark. */
     const val SPLIT_MARK = 0x47554953
+    const val SHAPE_MARK = 0x47554954
+    const val SPLIT_SHAPE_MARK = 0x47554955
 
     object Strategy {
         /** 1:1 round-robin per new proxy-server connection. */

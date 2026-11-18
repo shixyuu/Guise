@@ -97,39 +97,6 @@ object ByeDPI {
     const val OUTBOUND_DOMAIN_STRATEGY = "UseIPv4"
     const val DNS_QUERY_STRATEGY = "UseIPv4"
 
-    // ---- Guise: ByeDPI in front of TCP proxy servers ("pre-layer") ----
-
-    /** Outbound protocols that reach their server over TCP (unless their transport says otherwise). */
-    val PRE_LAYER_PROTOCOLS = setOf(
-        "vmess", "vless", "trojan", "shadowsocks", "socks", "http", "anytls", "ssh", "snell", "mieru", "trusttunnel",
-    )
-
-    /** Stream transports that run over TCP. kcp, quic, hysteria2 (and unknown ones) are left alone. */
-    val PRE_LAYER_NETWORKS = setOf(
-        "tcp", "raw", "ws", "websocket", "http", "h2", "grpc", "gun", "httpupgrade", "splithttp", "xhttp", "meek", "mekya",
-    )
-
-    /**
-     * Whether an outbound dialing a proxy server should be sent through ByeDPI's SOCKS server.
-     * [network] null = plain TCP; [alpn] of its TLS settings (XHTTP with h3 runs over QUIC);
-     * [udpOnly] for beans whose own setting selects a UDP/QUIC transport (mieru UDP,
-     * TrustTunnel over QUIC); [serverAddress] loopback/marker servers (plugins, ByeDPI itself)
-     * are never wrapped.
-     */
-    fun preLayerApplies(
-        protocol: String?, network: String?, alpn: List<String>?, udpOnly: Boolean, serverAddress: String?,
-    ): Boolean {
-        if (protocol == null || protocol !in PRE_LAYER_PROTOCOLS || udpOnly) return false
-        val address = serverAddress?.trim()?.removePrefix("[")?.removeSuffix("]")?.lowercase()
-        if (address.isNullOrEmpty() || address == PROFILE_MARKER_ADDRESS || address == "localhost" ||
-            address.startsWith("127.") || address == "::1"
-        ) return false
-        val net = network?.lowercase() ?: "tcp"
-        if (net !in PRE_LAYER_NETWORKS) return false
-        if ((net == "splithttp" || net == "xhttp") && alpn?.any { it.equals("h3", true) } == true) return false
-        return true
-    }
-
     /** "DNS for ByeDPI" list: one server per line or comma separated, '#' comments allowed. */
     fun parseDnsServers(text: String): List<String> {
         val servers = text.lines()

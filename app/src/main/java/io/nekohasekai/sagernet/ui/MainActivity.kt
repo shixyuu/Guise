@@ -79,10 +79,20 @@ class MainActivity : ThemedActivity(),
 
     val userInterface by lazy { GroupInterfaceAdapter(this) }
 
+    private val isExpressiveUi get() = DataStore.uiStyle == 0
+
     override val onBackPressedCallback = object : OnBackPressedCallback(enabled = false) {
         override fun handleOnBackPressed() {
-            displayFragmentWithId(R.id.nav_configuration)
+            val targetId = if (isExpressiveUi) R.id.nav_home else R.id.nav_configuration
+            displayFragmentWithId(targetId)
+            if (isExpressiveUi) {
+                binding.bottomNav.selectedItemId = targetId
+            }
         }
+    }
+
+    fun toggleService() {
+        if (state.canStop) SagerNet.stopService() else connect.launch(null)
     }
 
     private fun buildShortcut(context: Context) {
@@ -169,14 +179,27 @@ class MainActivity : ThemedActivity(),
             }
         }
 
-        if (savedInstanceState == null) {
-            displayFragmentWithId(R.id.nav_configuration)
+        if (isExpressiveUi) {
+            binding.fab.visibility = View.GONE
+            binding.fabProgress.visibility = View.GONE
+            binding.stats.visibility = View.GONE
+            binding.bottomNav.visibility = View.VISIBLE
+            binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
+            binding.bottomNav.setOnItemSelectedListener { item ->
+                displayFragmentWithId(item.itemId)
+            }
+            if (savedInstanceState == null) {
+                displayFragmentWithId(R.id.nav_home)
+                binding.bottomNav.selectedItemId = R.id.nav_home
+            }
+        } else {
+            if (savedInstanceState == null) {
+                displayFragmentWithId(R.id.nav_configuration)
+            }
         }
 
         binding.fab.setOnClickListener {
-            if (state.canStop) SagerNet.stopService() else connect.launch(
-                null
-            )
+            toggleService()
         }
         binding.stats.setOnClickListener { if (state == BaseService.State.Connected) binding.stats.testConnection() }
 
@@ -368,8 +391,8 @@ class MainActivity : ThemedActivity(),
     }
 
 
-    fun displayFragment(fragment: ToolbarFragment) {
-        if (fragment !is LogcatFragment) {
+    fun displayFragment(fragment: androidx.fragment.app.Fragment) {
+        if (!isExpressiveUi && fragment !is LogcatFragment) {
             binding.fab.show()
         }
         supportFragmentManager.beginTransaction()
@@ -380,12 +403,13 @@ class MainActivity : ThemedActivity(),
 
     fun displayFragmentWithId(@IdRes id: Int): Boolean {
         when (id) {
-            R.id.nav_configuration -> {
+            R.id.nav_home -> displayFragment(HomeExpressiveFragment())
+            R.id.nav_nodes, R.id.nav_configuration -> {
                 displayFragment(ConfigurationFragment())
                 connection.bandwidthTimeout = connection.bandwidthTimeout
             }
             R.id.nav_group -> displayFragment(GroupFragment())
-            R.id.nav_route -> displayFragment(RouteFragment())
+            R.id.nav_rules, R.id.nav_route -> displayFragment(RouteFragment())
             R.id.nav_settings -> displayFragment(SettingsFragment())
             R.id.nav_traffic -> {
                 displayFragment(TrafficFragment())
@@ -396,12 +420,23 @@ class MainActivity : ThemedActivity(),
             R.id.nav_about -> displayFragment(AboutFragment())
             else -> return false
         }
-        navigation.menu.findItem(id).isChecked = true
+        navigation.menu.findItem(id)?.isChecked = true
+        if (isExpressiveUi) {
+            val bottomId = when (id) {
+                R.id.nav_configuration -> R.id.nav_nodes
+                R.id.nav_route -> R.id.nav_rules
+                else -> id
+            }
+            binding.bottomNav.menu.findItem(bottomId)?.isChecked = true
+        }
         return true
     }
 
     fun ruleCreated() {
-        navigation.menu.findItem(R.id.nav_route).isChecked = true
+        navigation.menu.findItem(R.id.nav_route)?.isChecked = true
+        if (isExpressiveUi) {
+            binding.bottomNav.menu.findItem(R.id.nav_rules)?.isChecked = true
+        }
         supportFragmentManager.beginTransaction()
             .replace(R.id.fragment_holder, RouteFragment())
             .commitAllowingStateLoss()
@@ -430,6 +465,9 @@ class MainActivity : ThemedActivity(),
         if (msg != null) snackbar(msg).show()
         this.state = state
 
+        (supportFragmentManager.findFragmentById(R.id.fragment_holder) as? HomeExpressiveFragment)
+            ?.onServiceStateChanged(state)
+
         when (state) {
             BaseService.State.Connected, BaseService.State.Stopped -> {
                 statsUpdated(emptyList())
@@ -444,7 +482,7 @@ class MainActivity : ThemedActivity(),
 
     override fun snackbarInternal(text: CharSequence): Snackbar {
         return Snackbar.make(binding.coordinator, text, Snackbar.LENGTH_LONG).apply {
-            anchorView = binding.fab
+            anchorView = if (isExpressiveUi) binding.bottomNav else binding.fab
         }
     }
 

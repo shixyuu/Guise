@@ -150,6 +150,26 @@ class ConfigurationFragment @JvmOverloads constructor(
         if (!select) {
             toolbar.inflateMenu(R.menu.add_profile_menu)
             toolbar.setOnMenuItemClickListener(this)
+            if (DataStore.uiStyle == 0) {
+                toolbar.menu.findItem(R.id.action_scan_qr_code)?.let { _ ->
+                    // Replace the submenu add item with an expressive bottom sheet trigger
+                    for (i in 0 until toolbar.menu.size()) {
+                        val item = toolbar.menu.getItem(i)
+                        if (item.hasSubMenu() && item.title == getString(R.string.add_profile)) {
+                            toolbar.menu.removeItem(item.itemId)
+                            toolbar.menu.add(0, R.id.action_new_socks, i, R.string.add_profile).apply {
+                                setIcon(R.drawable.ic_action_note_add)
+                                setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                                setOnMenuItemClickListener {
+                                    ExpressiveAddNodeSheet().show(childFragmentManager, "add_node")
+                                    true
+                                }
+                            }
+                            break
+                        }
+                    }
+                }
+            }
         } else {
             toolbar.setTitle(titleRes)
             toolbar.setNavigationIcon(R.drawable.ic_navigation_close)
@@ -410,6 +430,67 @@ class ConfigurationFragment @JvmOverloads constructor(
             GroupManager.updateGroup(group, reconfigureUpdater = false)
         }
 
+    }
+
+    fun importFromClipboard() {
+        val text = SagerNet.getClipboardText()
+        if (text.isBlank()) {
+            snackbar(getString(R.string.clipboard_empty)).show()
+        } else {
+            runOnDefaultDispatcher {
+                try {
+                    val proxies = RawUpdater.parseRaw(text)
+                    if (proxies.isNullOrEmpty()) {
+                        if (!text.contains("\n") && !text.contains("\r") && isHTTPorHTTPSURL(text)) {
+                            (requireActivity() as? MainActivity)?.importSubscription(text)
+                        } else onMainDispatcher {
+                            snackbar(getString(R.string.no_proxies_found_in_clipboard)).show()
+                        }
+                    } else {
+                        import(proxies)
+                    }
+                } catch (e: Exception) {
+                    Logs.w(e)
+                    onMainDispatcher {
+                        snackbar(e.readableMessage).show()
+                    }
+                }
+            }
+        }
+    }
+
+    fun showByeDPINodeMenu(pa: MainActivity) {
+        val items = arrayOf(
+            getString(R.string.byedpi_probe),
+            getString(R.string.byedpi_args),
+            getString(R.string.byedpi_settings),
+        )
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.byedpi_profile_name)
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> startActivity(Intent(requireContext(), ByeDPIProbeActivity::class.java))
+                    1 -> {
+                        val edit = android.widget.EditText(requireContext()).apply {
+                            setText(DataStore.byedpiArgs.ifEmpty { ByeDPI.DEFAULT_ARGS })
+                            setPadding(dp2px(20), dp2px(12), dp2px(20), dp2px(12))
+                        }
+                        MaterialAlertDialogBuilder(requireContext())
+                            .setTitle(R.string.byedpi_args)
+                            .setMessage(R.string.byedpi_args_message)
+                            .setView(edit)
+                            .setPositiveButton(android.R.string.ok) { _, _ ->
+                                DataStore.byedpiArgs = edit.text.toString().trim()
+                                if (SagerNet.started) SagerNet.reloadService()
+                            }
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .show()
+                    }
+                    2 -> pa.displayFragmentWithId(R.id.nav_settings)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     override fun onMenuItemClick(item: MenuItem): Boolean {
@@ -1595,6 +1676,12 @@ class ConfigurationFragment @JvmOverloads constructor(
                     val pa = activity as MainActivity
 
                     view.setOnClickListener {
+                        val bean = runCatching { entity.requireBean() }.getOrNull()
+                        val isByeDpiNode = bean is SOCKSBean && bean.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
+                        if (isByeDpiNode && DataStore.isProtectionMode) {
+                            parent.snackbar(R.string.byedpi_node_disabled_hint).show()
+                            return@setOnClickListener
+                        }
                         runOnDefaultDispatcher {
                             val id = entity.id
                             var update: Boolean
@@ -1617,6 +1704,11 @@ class ConfigurationFragment @JvmOverloads constructor(
                                     SagerNet.stopService()
                                 } else {
                                     SagerNet.startService()
+                                }
+                            }
+                            if (isByeDpiNode && DataStore.protectionMode == ProtectionMode.MANUAL) {
+                                onMainDispatcher {
+                                    parent.showByeDPINodeMenu(pa)
                                 }
                             }
                         }

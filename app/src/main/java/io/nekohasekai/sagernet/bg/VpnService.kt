@@ -328,7 +328,7 @@ class VpnService : BaseVpnService(),
         }
 
         // Guise: dual-network also needs the protect_path server with gVisor (ByeDPI pinning)
-        if (tunImplementation == TunImplementation.SYSTEM || DataStore.dualNetEnabled) {
+        if (tunImplementation == TunImplementation.SYSTEM || DataStore.effectiveDualNetEnabled) {
             config.protectPath = SagerNet.deviceStorage.noBackupFilesDir.toString() + "/protect_path"
         }
 

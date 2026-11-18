@@ -298,7 +298,6 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             onPreferenceChangeListener = reloadListener
         }
         findPreference<SwitchPreference>(Key.BYEDPI_DNS_VIA_BYEDPI)!!.onPreferenceChangeListener = reloadListener
-        findPreference<SwitchPreference>(Key.BYEDPI_PRE_LAYER)!!.onPreferenceChangeListener = reloadListener
 
         val byedpiAuto = findPreference<SwitchPreference>(Key.BYEDPI_AUTO)!!
         val byedpiAutoInterval = findPreference<EditTextPreference>(Key.BYEDPI_AUTO_INTERVAL)!!
@@ -771,25 +770,33 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         findPreference<EditTextPreference>(Key.EXPERIMENTAL_FLAGS)?.isVisible = DataStore.enableDebug
     }
 
-    private fun updateGuiseScreenSummaries() {
+    private fun updateGuiseScreenSummaries(mode: Int = DataStore.protectionMode) {
+        val isManual = mode == ProtectionMode.MANUAL
         findPreference<Preference>("screen_byedpi")?.let { pref ->
-            pref.summary = if (DataStore.byedpiEnabled) {
-                val args = DataStore.byedpiArgs.trim().ifEmpty { ByeDPI.DEFAULT_ARGS }
-                "${getString(R.string.settings_status_enabled)} · $args"
-            } else {
-                getString(R.string.settings_status_disabled)
+            pref.isEnabled = isManual
+            pref.summary = when {
+                mode == ProtectionMode.SMART_SPLIT -> getString(R.string.protection_takeover_byedpi_smart)
+                !isManual -> getString(R.string.protection_takeover_byedpi_disabled)
+                DataStore.byedpiEnabled -> {
+                    val args = DataStore.byedpiArgs.trim().ifEmpty { ByeDPI.DEFAULT_ARGS }
+                    "${getString(R.string.settings_status_enabled)} · $args"
+                }
+                else -> getString(R.string.settings_status_disabled)
             }
         }
         findPreference<Preference>("screen_dual_net")?.let { pref ->
-            pref.summary = if (DataStore.dualNetEnabled) {
-                val strategy = if (DataStore.dualNetStrategy == DualNet.Strategy.AUTO) {
-                    getString(R.string.dual_net_strategy_auto)
-                } else {
-                    getString(R.string.dual_net_strategy_fixed)
+            pref.isEnabled = isManual
+            pref.summary = when {
+                !isManual -> getString(R.string.protection_takeover_dualnet)
+                DataStore.dualNetEnabled -> {
+                    val strategy = if (DataStore.dualNetStrategy == DualNet.Strategy.AUTO) {
+                        getString(R.string.dual_net_strategy_auto)
+                    } else {
+                        getString(R.string.dual_net_strategy_fixed)
+                    }
+                    "${getString(R.string.settings_status_enabled)} · $strategy"
                 }
-                "${getString(R.string.settings_status_enabled)} · $strategy"
-            } else {
-                getString(R.string.settings_status_disabled)
+                else -> getString(R.string.settings_status_disabled)
             }
         }
     }

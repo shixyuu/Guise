@@ -127,7 +127,9 @@ object Key {
     const val BYEDPI_MODE = "byedpiMode"
     const val BYEDPI_DOMAINS = "byedpiDomains"
     const val BYEDPI_ARGS = "byedpiArgs"
-    const val BYEDPI_PRE_LAYER = "byedpiPreLayer"
+    const val PROTECTION_MODE = "protectionMode"
+    const val SMART_SPLIT_DOMAINS = "smartSplitDomains"
+    const val UI_STYLE = "uiStyle"
     const val BYEDPI_AUTO = "byedpiAuto"
     const val BYEDPI_AUTO_INTERVAL = "byedpiAutoInterval"
     const val BYEDPI_AUTO_STATUS = "byedpiAutoStatus"
@@ -465,4 +467,12 @@ object TLS_FRAGMENTATION_METHOD {
     const val TLS_RECORD_FRAGMENTATION = 0
     const val TCP_SEGMENTATION = 1
     const val TLS_RECORD_FRAGMENTATION_AND_TCP_SEGMENTATION = 2
+}
+
+object ProtectionMode {
+    const val MANUAL = 0
+    const val SMART_SPLIT = 1
+    const val STANDARD = 2
+    const val BALANCED = 3
+    const val STRICT = 4
 }

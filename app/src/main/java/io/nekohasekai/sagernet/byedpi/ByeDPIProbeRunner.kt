@@ -86,7 +86,7 @@ class ByeDPIProbeRunner(
             DataStore.tunImplementation == TunImplementation.SYSTEM
     private val protectPath = if (
         SagerNet.started && DataStore.serviceMode == Key.MODE_VPN &&
-        (DataStore.tunImplementation == TunImplementation.SYSTEM || DataStore.dualNetEnabled)
+        (DataStore.tunImplementation == TunImplementation.SYSTEM || DataStore.effectiveDualNetEnabled)
     ) {
         SagerNet.deviceStorage.noBackupFilesDir.toString() + "/protect_path"
     } else null

@@ -277,44 +277,35 @@ fun buildV2RayConfig(
     val allowAccess = DataStore.allowAccess
     val bind = if (!forTest && allowAccess) "0.0.0.0" else LOCALHOST
 
-    // Guise: ByeDPI. The global switch only applies to the running service, while a profile
-    // using the built-in ByeDPI placeholder address also needs ByeDPI in URL tests.
-    val byedpiGlobal = !forTest && !forExport && DataStore.byedpiEnabled
-    val byedpiProfileInUse = !forExport && (proxies + extraProxies.values.flatten()).any {
+    // Guise: ByeDPI. Disabled in ProtectionMode (only real encrypted proxies allowed).
+    val byedpiGlobal = !forTest && !forExport && DataStore.effectiveByedpiEnabled
+    val byedpiEffectiveMode = if (DataStore.isSmartSplitMode) ByeDPI.Mode.DOMAINS else DataStore.byedpiMode
+    val byedpiEffectiveDomains = if (DataStore.isSmartSplitMode) DataStore.smartSplitDomains else DataStore.byedpiDomains
+    val byedpiProfileInUse = !forExport && !DataStore.isProtectionMode && (proxies + extraProxies.values.flatten()).any {
         (it.requireBean() as? SOCKSBean)?.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
     }
-    // Guise: "ByeDPI in front of TCP proxies": every outbound that reaches its server over TCP
-    // dials it through ByeDPI's SOCKS server (only the hop facing the network, see below).
-    val byedpiPreLayer = !forTest && !forExport && DataStore.byedpiPreLayer
-    val byedpiPort = if (byedpiGlobal || byedpiProfileInUse || byedpiPreLayer) mkPort() else 0
+    val byedpiPort = if (byedpiGlobal || byedpiProfileInUse) mkPort() else 0
 
     var directDNS = DataStore.directDns.listByLineOrComma().filter { !it.startsWith("#") }
     if (DataStore.useLocalDnsAsDirectDns) directDNS = listOf("localhost")
 
-    // Guise: DNS for ByeDPI. Sites worth sending through ByeDPI are usually DNS-poisoned too, so
-    // names that end up at ByeDPI must be resolved by encrypted DNS ("DNS for ByeDPI", DoH by
-    // default) rather than the system/direct resolver. Cases:
-    //  - ByeDPI-only profile as the main outbound: it replaces the remote DNS;
-    //  - global ByeDPI "all direct traffic" + route mode "direct": it replaces the (direct) DNS;
-    //  - global ByeDPI "selected domains": dedicated servers for those domains (added below).
     val byedpiIsMain = byedpiProfileInUse && proxies.any {
         (it.requireBean() as? SOCKSBean)?.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
     }
     val byedpiDnsPlan = ByeDPI.dnsPlan(
-        DataStore.byedpiDns, byedpiPort > 0, byedpiIsMain, byedpiGlobal, DataStore.byedpiMode,
-        DataStore.byedpiDomains, routeMode == RouteMode.DIRECT, forTest,
+        DataStore.byedpiDns, byedpiPort > 0, byedpiIsMain, byedpiGlobal, byedpiEffectiveMode,
+        byedpiEffectiveDomains, routeMode == RouteMode.DIRECT, forTest,
     )
     val byedpiDnsServers = if (byedpiDnsPlan.active) byedpiDnsPlan.servers else emptyList()
     val byedpiReplacesRemoteDns = byedpiDnsPlan.active && byedpiDnsPlan.replaceRemoteDns
     val byedpiDnsDomains = byedpiDnsPlan.domains
     var hasDnsTagByedpi = false
-    val byedpiPreLayerOutbounds = mutableListOf<OutboundObject>()
 
-    // Guise: dual-network split. Only outbounds that dial a real remote proxy server are marked;
-    // never with the ByeDPI-only profile (its exit IP would be the phone's own, on two networks).
-    val dualNetSplit = !forTest && !forExport && DataStore.dualNetEnabled && proxies.none {
+    // Guise: dual-network split & local generative traffic shaper
+    val dualNetSplit = !forTest && !forExport && DataStore.effectiveDualNetEnabled && proxies.none {
         (it.requireBean() as? SOCKSBean)?.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
     }
+    val shaperLevel = if (!forTest && !forExport) DataStore.effectiveShaperLevel else 0
 
     val remoteDNS = if (byedpiReplacesRemoteDns) {
         byedpiDnsServers
@@ -2172,28 +2163,35 @@ fun buildV2RayConfig(
                         bean.serverAddress
                     }
 
-                    if (byedpiPreLayer && byedpiPort > 0 && !proxyEntity.needExternal() && ByeDPI.preLayerApplies(
-                            currentOutbound.protocol,
-                            currentOutbound.streamSettings?.network,
-                            currentOutbound.streamSettings?.tlsSettings?.alpn,
-                            (bean is MieruBean && bean.protocol == MieruBean.PROTOCOL_UDP) ||
-                                    (bean is TrustTunnelBean && bean.protocol == "quic"),
-                            preLayerServerAddress,
-                        )
-                    ) {
-                        byedpiPreLayerOutbounds.add(currentOutbound)
-                    }
-
-                    if (dualNetSplit && currentOutbound.protocol !in setOf("freedom", "blackhole", "dns", "loopback") &&
+                    val isRealProxyOutbound = currentOutbound.protocol !in setOf("freedom", "blackhole", "dns", "loopback") &&
                         !(bean is SOCKSBean && bean.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS)
-                    ) {
-                        // Guise: let libexclavecore balance this outbound's server sockets across
-                        // Wi-Fi and cellular (the mark is consumed there, never set as SO_MARK)
-                        val stream = currentOutbound.streamSettings ?: StreamSettingsObject().also {
-                            currentOutbound.streamSettings = it
+                    if (isRealProxyOutbound) {
+                        val stream = currentOutbound.streamSettings
+                        val tls = stream?.tlsSettings
+                        val isStrongCamouflage = stream?.security == "reality" ||
+                            !tls?.utlsFingerprint.isNullOrEmpty() ||
+                            !tls?.echConfig.isNullOrEmpty() ||
+                            !tls?.echDohServer.isNullOrEmpty() ||
+                            currentOutbound.protocol in setOf("naive", "anytls", "shadowtls")
+                        val isUdpQuic = currentOutbound.protocol in setOf(
+                            "hysteria2", "tuic", "juicity", "shadowquic", "masque", "wireguard"
+                        ) || stream?.network == "quic" ||
+                            (bean is MieruBean && bean.protocol == MieruBean.PROTOCOL_UDP) ||
+                            (bean is TrustTunnelBean && bean.protocol == "quic")
+                        val shapeThis = shaperLevel > 0 && !isStrongCamouflage && (!isUdpQuic || shaperLevel >= 2)
+                        if (dualNetSplit || shapeThis) {
+                            val targetStream = stream ?: StreamSettingsObject().also {
+                                currentOutbound.streamSettings = it
+                            }
+                            val sockopt = targetStream.sockopt ?: StreamSettingsObject.SockoptObject().also {
+                                targetStream.sockopt = it
+                            }
+                            sockopt.mark = when {
+                                dualNetSplit && shapeThis -> DualNet.SPLIT_SHAPE_MARK
+                                dualNetSplit -> DualNet.SPLIT_MARK
+                                else -> DualNet.SHAPE_MARK
+                            }
                         }
-                        val sockopt = stream.sockopt ?: StreamSettingsObject.SockoptObject().also { stream.sockopt = it }
-                        sockopt.mark = DualNet.SPLIT_MARK
                     }
 
                     currentOutbound.tag = tagIn
@@ -2647,20 +2645,6 @@ fun buildV2RayConfig(
             }
         })
 
-        // Guise: ByeDPI pre-layer. Hops that already dial through another outbound (inner hops of a
-        // chain) keep that; only the hop that faces the network goes through ByeDPI.
-        for (outbound in byedpiPreLayerOutbounds) {
-            if (outbound.proxySettings == null) {
-                outbound.proxySettings = OutboundObject.ProxySettingsObject().apply {
-                    tag = ByeDPI.TAG_BYEDPI
-                    transportLayer = true
-                }
-                if (outbound.streamSettings?.sockopt?.mark == DualNet.SPLIT_MARK) {
-                    outbound.streamSettings!!.sockopt!!.mark = null
-                }
-            }
-        }
-
         if (byedpiPort > 0) {
             // Guise: ByeDPI local SOCKS5 server (process started by V2RayInstance.launch).
             // Also present for the ByeDPI-only profile, as the route for "DNS for ByeDPI".
@@ -3065,9 +3049,9 @@ fun buildV2RayConfig(
         }
 
         if (byedpiGlobal) {
-            when (DataStore.byedpiMode) {
+            when (byedpiEffectiveMode) {
                 ByeDPI.Mode.DOMAINS -> {
-                    val byedpiDomains = ByeDPI.parseDomains(DataStore.byedpiDomains)
+                    val byedpiDomains = ByeDPI.parseDomains(byedpiEffectiveDomains)
                     if (byedpiDomains.isNotEmpty()) {
                         // placed before user rules and the "direct" route mode catch-all
                         routing.rules.add(0, RoutingObject.RuleObject().apply {
@@ -3088,6 +3072,24 @@ fun buildV2RayConfig(
                         }
                     }
                 }
+            }
+        }
+
+        if (!forTest && !forExport && DataStore.isProtectionMode) {
+            // Guise: Leak Guard — block STUN/WebRTC UDP probing to prevent IP leaks
+            routing.rules.add(0, RoutingObject.RuleObject().apply {
+                type = "field"
+                network = "udp"
+                port = "3478,5349"
+                outboundTag = TAG_BLOCK
+            })
+            if (DataStore.protectionMode == ProtectionMode.STRICT) {
+                // Block multicast/mDNS/SSDP LAN discovery
+                routing.rules.add(0, RoutingObject.RuleObject().apply {
+                    type = "field"
+                    ip = listOf("224.0.0.0/4", "ff00::/8")
+                    outboundTag = TAG_BLOCK
+                })
             }
         }
 

@@ -358,7 +358,7 @@ class ByeDPIProbeActivity : ThemedActivity(), SagerConnection.Callback {
     }
 
     private fun isByeDPIActive(): Boolean {
-        if (DataStore.byedpiEnabled || DataStore.byedpiPreLayer) return true
+        if (DataStore.effectiveByedpiEnabled) return true
         val bean = runCatching {
             SagerDatabase.proxyDao.getById(DataStore.selectedProxy)?.requireBean()
         }.getOrNull()

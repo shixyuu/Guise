@@ -1,0 +1,555 @@
+From b665d8b56741042f067b11c72e644a56b8e11a04 Mon Sep 17 00:00:00 2001
+From: Guise <guise@localhost>
+Date: Wed, 18 Nov 2026 00:40:36 +0000
+Subject: [PATCH] Guise: local generative traffic shaping model for
+ weak-camouflage outbounds
+
+---
+ dialer.go            |  10 +-
+ multinet.go          |  31 +++--
+ shaper.go            |  97 ++++++++++++++++
+ shaper/model.go      | 266 +++++++++++++++++++++++++++++++++++++++++++
+ shaper/model_test.go |  69 +++++++++++
+ 5 files changed, 463 insertions(+), 10 deletions(-)
+ create mode 100644 shaper.go
+ create mode 100644 shaper/model.go
+ create mode 100644 shaper/model_test.go
+
+diff --git a/dialer.go b/dialer.go
+index 861ca57..9e30eaf 100644
+--- a/dialer.go
++++ b/dialer.go
+@@ -82,8 +82,8 @@ func (dialer protectedDialer) dial(ctx context.Context, src v2rayNet.Address, de
+ 		unix.Close(fd)
+ 		return nil, errors.New("protect failed")
+ 	}
+-	// Guise: dual-network split / single-network pinning
+-	split, sockopt := takeSplitMark(sockopt)
++	// Guise: dual-network split / single-network pinning / traffic shaping
++	split, shape, sockopt := takeGuiseMarks(sockopt)
+ 	label := bindDialSocket(fd, dest, split)
+ 	if sockopt != nil {
+ 		var network string
+@@ -160,6 +160,9 @@ func (dialer protectedDialer) dial(ctx context.Context, src v2rayNet.Address, de
+ 		if split && label != "" {
+ 			packetConn = trackSplitUDP(packetConn, destAddr, label, dialer.protector)
+ 		}
++		if shape {
++			packetConn = wrapShapedPacketConn(packetConn)
++		}
+ 		return &internet.PacketConnWrapper{
+ 			Conn: packetConn,
+ 			Dest: destAddr,
+@@ -173,6 +176,9 @@ func (dialer protectedDialer) dial(ctx context.Context, src v2rayNet.Address, de
+ 		if split && label != "" {
+ 			trackSplitConn(conn, label)
+ 		}
++		if shape {
++			conn = wrapShapedConn(conn)
++		}
+ 		return conn, nil
+ 	}
+ }
+diff --git a/multinet.go b/multinet.go
+index ee552b1..1b69333 100644
+--- a/multinet.go
++++ b/multinet.go
+@@ -37,7 +37,11 @@ import (
+ 
+ // GuiseSplitMark is the sockopt "mark" the app puts on proxy-server outbounds. It is consumed
+ // here and never set as SO_MARK.
+-const GuiseSplitMark = 0x47554953 // "GUIS"
++const (
++	GuiseSplitMark      = 0x47554953 // "GUIS": dual-network split only
++	GuiseShapeMark      = 0x47554954 // "GUIT": traffic shaper only
++	GuiseSplitShapeMark = 0x47554955 // "GUIU": both split and shaper
++)
+ 
+ type SocketBinder interface {
+ 	// BindSocket may bind fd to a specific Android network. destination is "ip:port" (may be
+@@ -78,14 +82,25 @@ func currentSocketBinder() SocketBinder {
+ 	return socketBinder
+ }
+ 
+-// takeSplitMark reports whether sockopt carries GuiseSplitMark and returns sockopt without it.
+-func takeSplitMark(sockopt *internet.SocketConfig) (bool, *internet.SocketConfig) {
+-	if sockopt == nil || sockopt.Mark != GuiseSplitMark {
+-		return false, sockopt
++// takeGuiseMarks reports whether sockopt carries Guise split/shape marks and returns sockopt without them.
++func takeGuiseMarks(sockopt *internet.SocketConfig) (split bool, shape bool, clean *internet.SocketConfig) {
++	if sockopt == nil {
++		return false, false, nil
++	}
++	switch sockopt.Mark {
++	case GuiseSplitMark:
++		split = true
++	case GuiseShapeMark:
++		shape = true
++	case GuiseSplitShapeMark:
++		split = true
++		shape = true
++	default:
++		return false, false, sockopt
+ 	}
+-	clean := proto.Clone(sockopt).(*internet.SocketConfig)
+-	clean.Mark = 0
+-	return true, clean
++	c := proto.Clone(sockopt).(*internet.SocketConfig)
++	c.Mark = 0
++	return split, shape, c
+ }
+ 
+ func bindDialSocket(fd int, dest v2rayNet.Destination, split bool) string {
+diff --git a/shaper.go b/shaper.go
+new file mode 100644
+index 0000000..28b737a
+--- /dev/null
++++ b/shaper.go
+@@ -0,0 +1,97 @@
++/*
++Copyright (C) 2026 Guise contributors
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++*/
++
++package libexclavecore
++
++import (
++	"net"
++	"sync/atomic"
++	"time"
++
++	"github.com/exclavenetwork/libexclavecore/shaper"
++)
++
++var trafficShaperLevel atomic.Int32
++
++// SetTrafficShaper configures the client-side generative traffic shaping level:
++// 0 = off, 1 = balanced (TCP weak-camouflage only), 2 = strict (+ UDP timing pacing).
++func SetTrafficShaper(level int32) {
++	if level < 0 {
++		level = 0
++	} else if level > shaper.LevelStrict {
++		level = shaper.LevelStrict
++	}
++	trafficShaperLevel.Store(level)
++}
++
++func wrapShapedConn(conn net.Conn) net.Conn {
++	level := int(trafficShaperLevel.Load())
++	if level <= shaper.LevelOff {
++		return conn
++	}
++	if tcpConn, ok := conn.(*net.TCPConn); ok {
++		_ = tcpConn.SetNoDelay(true)
++	}
++	return &shapedConn{
++		Conn:  conn,
++		model: shaper.NewSessionModel(level),
++	}
++}
++
++func wrapShapedPacketConn(pconn net.PacketConn) net.PacketConn {
++	level := int(trafficShaperLevel.Load())
++	if level < shaper.LevelStrict {
++		return pconn
++	}
++	return &shapedPacketConn{
++		PacketConn: pconn,
++		model:      shaper.NewSessionModel(level),
++	}
++}
++
++type shapedConn struct {
++	net.Conn
++	model *shaper.SessionModel
++}
++
++func (c *shapedConn) Write(b []byte) (int, error) {
++	if c.model == nil || !c.model.Active() {
++		return c.Conn.Write(b)
++	}
++	plan := c.model.PlanTCPWrite(len(b))
++	if len(plan) == 0 {
++		return c.Conn.Write(b)
++	}
++	written := 0
++	for _, chunk := range plan {
++		if chunk.Delay > 0 {
++			time.Sleep(chunk.Delay)
++		}
++		n, err := c.Conn.Write(b[written : written+chunk.Size])
++		written += n
++		if err != nil {
++			return written, err
++		}
++	}
++	return written, nil
++}
++
++type shapedPacketConn struct {
++	net.PacketConn
++	model *shaper.SessionModel
++}
++
++func (c *shapedPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
++	if c.model != nil {
++		if d := c.model.SampleUDPDelay(len(b)); d > 0 {
++			time.Sleep(d)
++		}
++	}
++	return c.PacketConn.WriteTo(b, addr)
++}
+diff --git a/shaper/model.go b/shaper/model.go
+new file mode 100644
+index 0000000..e918eaa
+--- /dev/null
++++ b/shaper/model.go
+@@ -0,0 +1,266 @@
++/*
++Copyright (C) 2026 Guise contributors
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++*/
++
++// Package shaper implements a lightweight, per-session randomized local generative
++// model for client-side traffic feature perturbation.
++//
++// Instead of fixed chunk sizes or flat uniform randomness, each connection samples
++// its own perturbed 3-state Markov regime transition matrix, Log-Normal chunk-size
++// parameters, and AR(1) autocorrelated inter-arrival timing process, plus a random
++// shaping horizon after which bulk traffic passes through with zero overhead.
++package shaper
++
++import (
++	cryptoRand "crypto/rand"
++	"encoding/binary"
++	"math"
++	"math/rand/v2"
++	"time"
++)
++
++const (
++	LevelOff      = 0
++	LevelBalanced = 1
++	LevelStrict   = 2
++)
++
++const (
++	regimeInteractive = 0
++	regimeBurst       = 1
++	regimePaced       = 2
++	numRegimes        = 3
++)
++
++// ChunkPlan describes one write segment and the delay to wait before sending it.
++type ChunkPlan struct {
++	Size  int
++	Delay time.Duration
++}
++
++// SessionModel holds per-connection latent state for the generative traffic model.
++type SessionModel struct {
++	level     int
++	rng       *rand.Rand
++	state     int
++	trans     [numRegimes][numRegimes]float64
++	lastDelay float64 // ms, for AR(1) temporal autocorrelation
++
++	// Per-connection stochastic shaping horizon (avoids fixed byte/write cutoffs).
++	maxWrites int
++	maxBytes  int
++	writes    int
++	bytes     int
++}
++
++func cryptoSeed() (uint64, uint64) {
++	var buf [16]byte
++	_, _ = cryptoRand.Read(buf[:])
++	s1 := binary.LittleEndian.Uint64(buf[:8])
++	s2 := binary.LittleEndian.Uint64(buf[8:])
++	if s1 == 0 && s2 == 0 {
++		s1 = uint64(time.Now().UnixNano())
++		s2 = 0x9e3779b97f4a7c15
++	}
++	return s1, s2
++}
++
++// NewSessionModel creates a fresh generative model for a single connection.
++func NewSessionModel(level int) *SessionModel {
++	if level <= LevelOff {
++		return nil
++	}
++	s1, s2 := cryptoSeed()
++	rng := rand.New(rand.NewPCG(s1, s2))
++
++	// Base Markov transition matrix across {Interactive, Burst, Paced}.
++	base := [numRegimes][numRegimes]float64{
++		{0.55, 0.25, 0.20},
++		{0.25, 0.60, 0.15},
++		{0.35, 0.20, 0.45},
++	}
++	var trans [numRegimes][numRegimes]float64
++	for r := 0; r < numRegimes; r++ {
++		var sum float64
++		for c := 0; c < numRegimes; c++ {
++			// Multiplicative per-session perturbation in [0.7, 1.3].
++			jitter := 0.70 + 0.60*rng.Float64()
++			trans[r][c] = base[r][c] * jitter
++			sum += trans[r][c]
++		}
++		for c := 0; c < numRegimes; c++ {
++			trans[r][c] /= sum
++		}
++	}
++
++	m := &SessionModel{
++		level: level,
++		rng:   rng,
++		state: rng.IntN(numRegimes),
++		trans: trans,
++	}
++
++	// Sample stochastic shaping horizon from Log-Normal.
++	if level >= LevelStrict {
++		m.maxWrites = clampInt(int(math.Round(m.logNormal(math.Log(10), 0.35))), 6, 18)
++		m.maxBytes = clampInt(int(math.Round(m.logNormal(math.Log(14336), 0.40))), 4096, 32768)
++	} else {
++		m.maxWrites = clampInt(int(math.Round(m.logNormal(math.Log(6), 0.30))), 4, 11)
++		m.maxBytes = clampInt(int(math.Round(m.logNormal(math.Log(6144), 0.35))), 2048, 16384)
++	}
++	return m
++}
++
++// Active reports whether the connection is still inside its shaping horizon.
++func (m *SessionModel) Active() bool {
++	if m == nil {
++		return false
++	}
++	return m.writes < m.maxWrites && m.bytes < m.maxBytes
++}
++
++// PlanTCPWrite generates a sequence of chunk sizes and pre-send delays for a TCP write of length n.
++// Returns nil when the shaping horizon has been reached (caller should write directly).
++func (m *SessionModel) PlanTCPWrite(n int) []ChunkPlan {
++	if !m.Active() || n <= 0 {
++		return nil
++	}
++	m.writes++
++	m.bytes += n
++
++	// Small writes don't need splitting, only an optional AR(1) micro-pace.
++	if n <= 48 {
++		d := m.sampleDelayMs(false)
++		return []ChunkPlan{{Size: n, Delay: msToDuration(d)}}
++	}
++
++	var plan []ChunkPlan
++	remaining := n
++	first := true
++	for remaining > 0 {
++		if remaining <= 40 || len(plan) >= 12 {
++			var d time.Duration
++			if !first {
++				d = msToDuration(m.sampleDelayMs(false))
++			}
++			plan = append(plan, ChunkPlan{Size: remaining, Delay: d})
++			break
++		}
++
++		chunk := m.sampleChunkSize(remaining)
++		if chunk >= remaining {
++			chunk = remaining
++		}
++		var d time.Duration
++		if !first {
++			d = msToDuration(m.sampleDelayMs(false))
++		}
++		plan = append(plan, ChunkPlan{Size: chunk, Delay: d})
++		remaining -= chunk
++		first = false
++		m.stepRegime()
++	}
++	return plan
++}
++
++// SampleUDPDelay returns an optional micro-pacing delay for a UDP datagram without altering its bytes.
++func (m *SessionModel) SampleUDPDelay(pktLen int) time.Duration {
++	if m == nil || m.level < LevelStrict || pktLen > 600 {
++		return 0
++	}
++	if m.writes >= m.maxWrites*2 {
++		return 0
++	}
++	m.writes++
++	m.stepRegime()
++	return msToDuration(m.sampleDelayMs(true))
++}
++
++func (m *SessionModel) stepRegime() {
++	u := m.rng.Float64()
++	var acc float64
++	row := m.trans[m.state]
++	for c := 0; c < numRegimes; c++ {
++		acc += row[c]
++		if u <= acc {
++			m.state = c
++			return
++		}
++	}
++	m.state = numRegimes - 1
++}
++
++func (m *SessionModel) sampleChunkSize(remaining int) int {
++	var mu, sigma float64
++	var minC, maxC int
++	switch m.state {
++	case regimeInteractive:
++		mu, sigma = math.Log(140), 0.45
++		minC, maxC = 32, 360
++	case regimeBurst:
++		mu, sigma = math.Log(420), 0.40
++		minC, maxC = 96, 900
++	default: // regimePaced
++		mu, sigma = math.Log(88), 0.40
++		minC, maxC = 24, 220
++	}
++	sz := clampInt(int(math.Round(m.logNormal(mu, sigma))), minC, maxC)
++	if sz > remaining {
++		return remaining
++	}
++	return sz
++}
++
++func (m *SessionModel) sampleDelayMs(udp bool) float64 {
++	var mu, sigma, rho, maxMs float64
++	if udp {
++		mu, sigma, rho, maxMs = math.Log(0.7), 0.55, 0.45, 2.5
++	} else {
++		switch m.state {
++		case regimeInteractive:
++			mu, sigma, rho, maxMs = math.Log(1.1), 0.50, 0.50, 3.5
++		case regimeBurst:
++			mu, sigma, rho, maxMs = math.Log(0.25), 0.45, 0.35, 1.2
++		default: // regimePaced
++			mu, sigma, rho, maxMs = math.Log(1.8), 0.55, 0.60, 5.0
++		}
++		if m.level < LevelStrict {
++			maxMs *= 0.65
++		}
++	}
++	innov := m.logNormal(mu, sigma)
++	val := rho*m.lastDelay + (1.0-rho)*innov
++	if val < 0 {
++		val = 0
++	} else if val > maxMs {
++		val = maxMs
++	}
++	m.lastDelay = val
++	return val
++}
++
++func (m *SessionModel) logNormal(mu, sigma float64) float64 {
++	return math.Exp(mu + sigma*m.rng.NormFloat64())
++}
++
++func msToDuration(ms float64) time.Duration {
++	if ms <= 0 {
++		return 0
++	}
++	return time.Duration(ms * float64(time.Millisecond))
++}
++
++func clampInt(v, lo, hi int) int {
++	if v < lo {
++		return lo
++	}
++	if v > hi {
++		return hi
++	}
++	return v
++}
+diff --git a/shaper/model_test.go b/shaper/model_test.go
+new file mode 100644
+index 0000000..14e5cf3
+--- /dev/null
++++ b/shaper/model_test.go
+@@ -0,0 +1,69 @@
++package shaper
++
++import (
++	"testing"
++	"time"
++)
++
++func TestPlanTCPWriteConservationAndBypass(t *testing.T) {
++	m := NewSessionModel(LevelBalanced)
++	if m == nil {
++		t.Fatal("expected non-nil model")
++	}
++
++	// Verify exact byte conservation across multiple writes until horizon bypass.
++	var bypassed bool
++	for i := 0; i < 30; i++ {
++		n := 517
++		plan := m.PlanTCPWrite(n)
++		if plan == nil {
++			bypassed = true
++			break
++		}
++		sum := 0
++		for _, c := range plan {
++			if c.Size <= 0 {
++				t.Fatalf("non-positive chunk size: %d", c.Size)
++			}
++			if c.Delay < 0 || c.Delay > 6*time.Millisecond {
++				t.Fatalf("unexpected delay: %v", c.Delay)
++			}
++			sum += c.Size
++		}
++		if sum != n {
++			t.Fatalf("byte sum mismatch: got %d want %d", sum, n)
++		}
++	}
++	if !bypassed {
++		t.Fatal("expected model to eventually bypass after stochastic horizon")
++	}
++}
++
++func TestSessionRandomness(t *testing.T) {
++	m1 := NewSessionModel(LevelStrict)
++	m2 := NewSessionModel(LevelStrict)
++	p1 := m1.PlanTCPWrite(1200)
++	p2 := m2.PlanTCPWrite(1200)
++	if len(p1) == 0 || len(p2) == 0 {
++		t.Fatal("expected non-empty plans")
++	}
++	// Transition matrices should differ between independent sessions.
++	if m1.trans == m2.trans {
++		t.Fatal("expected per-session randomized transition matrices")
++	}
++}
++
++func TestUDPDelayBounds(t *testing.T) {
++	m1 := NewSessionModel(LevelBalanced)
++	if d := m1.SampleUDPDelay(200); d != 0 {
++		t.Fatalf("expected 0 UDP delay in balanced mode, got %v", d)
++	}
++	m2 := NewSessionModel(LevelStrict)
++	if d := m2.SampleUDPDelay(1200); d != 0 {
++		t.Fatalf("expected 0 UDP delay for large datagram, got %v", d)
++	}
++	d := m2.SampleUDPDelay(200)
++	if d < 0 || d > 3*time.Millisecond {
++		t.Fatalf("unexpected UDP delay: %v", d)
++	}
++}
+-- 
+2.39.5
+

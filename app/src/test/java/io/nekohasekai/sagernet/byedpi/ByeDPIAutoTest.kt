@@ -72,31 +72,4 @@ class ByeDPIAutoTest {
         assertEquals("z", ByeDPIAuto.fallback("cur", retested)!!.args)
         assertNull(ByeDPIAuto.fallback("cur", listOf(ByeDPIAuto.Entry("x", 0.25, 10))))
     }
-
-    @Test
-    fun preLayerScope() {
-        fun applies(p: String?, n: String? = null, alpn: List<String>? = null, udp: Boolean = false, addr: String = "203.0.113.5") =
-            ByeDPI.preLayerApplies(p, n, alpn, udp, addr)
-        assertTrue(applies("vless"))
-        assertTrue(applies("trojan", "ws"))
-        assertTrue(applies("vmess", "grpc"))
-        assertTrue(applies("shadowsocks"))
-        assertTrue(applies("anytls"))
-        assertTrue(applies("vless", "splithttp", listOf("h2", "http/1.1")))
-        assertFalse(applies("vless", "splithttp", listOf("h3")))
-        assertFalse(applies("vless", "kcp"))
-        assertFalse(applies("vless", "quic"))
-        assertFalse(applies("hysteria2"))
-        assertFalse(applies("tuic"))
-        assertFalse(applies("juicity"))
-        assertFalse(applies("wireguard"))
-        assertFalse(applies("mieru", udp = true))
-        assertTrue(applies("mieru"))
-        assertFalse(applies("trusttunnel", udp = true))
-        assertFalse(applies("freedom"))
-        assertFalse(applies("socks", addr = "127.0.0.1")) // plugin mapping
-        assertFalse(applies("socks", addr = ByeDPI.PROFILE_MARKER_ADDRESS))
-        assertFalse(applies("vless", addr = ""))
-        assertTrue(applies("vless", addr = "example.com"))
-    }
 }

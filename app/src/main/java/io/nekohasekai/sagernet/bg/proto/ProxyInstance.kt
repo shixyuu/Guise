@@ -69,7 +69,7 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
         // With dual-network on, VpnService also runs the protect_path server for gVisor so ByeDPI's
         // sockets can be pinned to the chosen single network.
         return if (service is VpnService &&
-            (DataStore.tunImplementation == TunImplementation.SYSTEM || DataStore.dualNetEnabled)
+            (DataStore.tunImplementation == TunImplementation.SYSTEM || DataStore.effectiveDualNetEnabled)
         ) {
             SagerNet.deviceStorage.noBackupFilesDir.toString() + "/protect_path"
         } else {
@@ -81,21 +81,25 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
     private var guiseDialer = false
 
     private fun startDualNetwork() {
-        if (!DataStore.dualNetEnabled) return
-        val manager = DualNetworkManager(
-            DataStore.dualNetStrategy,
-            DataStore.dualNetSingleNetwork,
-            DataStore.dualNetSampleKb,
-            config.dualNetSplit,
-            DataStore.dualNetUdpProbeInterval,
-        )
-        manager.start()
-        Libexclavecore.setSocketBinder(manager)
-        Libexclavecore.setDualNetSampleBytes(manager.sampleBytes)
-        Libexclavecore.setDualNetUDPProbe(manager.udpProbeIntervalSeconds) // after sample bytes
-        dualNetwork = manager
-        if (service !is VpnService) {
-            // plain proxy mode has no TUN dialer; install one so sockets reach the binder
+        val shaperLevel = DataStore.effectiveShaperLevel
+        Libexclavecore.setTrafficShaper(shaperLevel)
+        val dualNetOn = DataStore.effectiveDualNetEnabled
+        if (dualNetOn) {
+            val manager = DualNetworkManager(
+                DataStore.effectiveDualNetStrategy,
+                DataStore.dualNetSingleNetwork,
+                DataStore.dualNetSampleKb,
+                config.dualNetSplit,
+                DataStore.dualNetUdpProbeInterval,
+            )
+            manager.start()
+            Libexclavecore.setSocketBinder(manager)
+            Libexclavecore.setDualNetSampleBytes(manager.sampleBytes)
+            Libexclavecore.setDualNetUDPProbe(manager.udpProbeIntervalSeconds) // after sample bytes
+            dualNetwork = manager
+        }
+        if ((dualNetOn || shaperLevel > 0) && service !is VpnService) {
+            // plain proxy mode has no TUN dialer; install one so sockets reach the binder/shaper
             v2rayPoint.withGuiseDialer()
             guiseDialer = true
         }
@@ -223,6 +227,7 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
         persistStats()
         super.close()
 
+        Libexclavecore.setTrafficShaper(0)
         dualNetwork?.let {
             Libexclavecore.setDualNetSampleBytes(0)
             Libexclavecore.setDualNetUDPProbe(0)

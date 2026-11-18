@@ -201,7 +201,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var byedpiMode by configurationStore.stringToInt(Key.BYEDPI_MODE) { ByeDPI.Mode.ALL_DIRECT }
     var byedpiDomains by configurationStore.string(Key.BYEDPI_DOMAINS)
     var byedpiArgs by configurationStore.stringNotBlack(Key.BYEDPI_ARGS) { ByeDPI.DEFAULT_ARGS }
-    var byedpiPreLayer by configurationStore.boolean(Key.BYEDPI_PRE_LAYER)
+    var protectionMode by configurationStore.stringToInt(Key.PROTECTION_MODE) { ProtectionMode.MANUAL }
+    var smartSplitDomains by configurationStore.string(Key.SMART_SPLIT_DOMAINS)
+    var uiStyle by configurationStore.stringToInt(Key.UI_STYLE) { 0 }
     var byedpiAuto by configurationStore.boolean(Key.BYEDPI_AUTO)
     var byedpiAutoInterval by configurationStore.stringToInt(Key.BYEDPI_AUTO_INTERVAL) { ByeDPIAuto.DEFAULT_INTERVAL_MINUTES }
     var byedpiAutoPool by configurationStore.string(Key.BYEDPI_AUTO_POOL)
@@ -218,6 +220,33 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var dualNetSingleNetwork by configurationStore.stringToInt(Key.DUAL_NET_SINGLE) { DualNet.Single.WIFI }
     var dualNetSampleKb by configurationStore.stringToInt(Key.DUAL_NET_SAMPLE_KB) { DualNet.DEFAULT_SAMPLE_KB }
     var dualNetUdpProbeInterval by configurationStore.stringToInt(Key.DUAL_NET_UDP_PROBE_INTERVAL) { DualNet.DEFAULT_UDP_PROBE_INTERVAL }
+
+    val isProtectionMode: Boolean get() = protectionMode >= ProtectionMode.STANDARD
+    val isSmartSplitMode: Boolean get() = protectionMode == ProtectionMode.SMART_SPLIT
+    val effectiveByedpiEnabled: Boolean
+        get() = when (protectionMode) {
+            ProtectionMode.MANUAL -> byedpiEnabled
+            ProtectionMode.SMART_SPLIT -> true
+            else -> false
+        }
+    val effectiveDualNetEnabled: Boolean
+        get() = when (protectionMode) {
+            ProtectionMode.MANUAL -> dualNetEnabled
+            ProtectionMode.BALANCED, ProtectionMode.STRICT -> true
+            else -> false
+        }
+    val effectiveDualNetStrategy: Int
+        get() = when (protectionMode) {
+            ProtectionMode.BALANCED -> DualNet.Strategy.AUTO
+            ProtectionMode.STRICT -> DualNet.Strategy.FIXED
+            else -> dualNetStrategy
+        }
+    val effectiveShaperLevel: Int
+        get() = when (protectionMode) {
+            ProtectionMode.BALANCED -> 1
+            ProtectionMode.STRICT -> 2
+            else -> 0
+        }
     /** comma separated target ids (presets and "custom:<url>") */
     var byedpiProbeTargets by configurationStore.stringNotBlack(Key.BYEDPI_PROBE_TARGETS) { ByeDPIProbeTargets.DEFAULT_SELECTION }
     var byedpiProbeCustom by configurationStore.string(Key.BYEDPI_PROBE_CUSTOM)

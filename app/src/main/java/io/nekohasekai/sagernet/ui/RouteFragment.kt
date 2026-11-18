@@ -137,11 +137,19 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         super.onDestroy()
     }
 
+    fun importFromClipboard() {
+        toolbar.menu.findItem(R.id.action_import)?.let { onMenuItemClick(it) }
+    }
+
     @SuppressLint("CheckResult")
     override fun onMenuItemClick(item: MenuItem): Boolean {
         when (item.itemId) {
             R.id.action_new_route -> {
-                startActivity(Intent(context, RouteSettingsActivity::class.java))
+                if (DataStore.uiStyle == 0) {
+                    ExpressiveAddRuleSheet().show(childFragmentManager, "add_rule")
+                } else {
+                    startActivity(Intent(context, RouteSettingsActivity::class.java))
+                }
             }
             R.id.action_disable_all -> {
                 runOnDefaultDispatcher {

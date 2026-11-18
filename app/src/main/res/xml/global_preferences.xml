@@ -97,6 +97,24 @@
     </PreferenceCategory>
 
     <PreferenceCategory app:title="@string/settings_category_guise">
+        <io.nekohasekai.sagernet.widget.SimpleMenuPreference
+            app:defaultValue="0"
+            app:entries="@array/protection_mode_entry"
+            app:entryValues="@array/protection_mode_value"
+            app:icon="@drawable/ic_baseline_security_24"
+            app:key="protectionMode"
+            app:singleLineTitle="false"
+            app:title="@string/protection_mode_title"
+            app:useSimpleSummaryProvider="true" />
+        <io.nekohasekai.sagernet.widget.SimpleMenuPreference
+            app:defaultValue="0"
+            app:entries="@array/ui_style_entry"
+            app:entryValues="@array/ui_style_value"
+            app:icon="@drawable/ic_baseline_color_lens_24"
+            app:key="uiStyle"
+            app:singleLineTitle="false"
+            app:title="@string/ui_style_title"
+            app:useSimpleSummaryProvider="true" />
         <PreferenceScreen
             app:icon="@drawable/ic_baseline_texture_24"
             app:key="screen_byedpi"
@@ -128,11 +146,6 @@
                 app:key="byedpiArgs"
                 app:title="@string/byedpi_args"
                 app:useSimpleSummaryProvider="true" />
-            <SwitchPreference
-                app:icon="@drawable/ic_baseline_texture_24"
-                app:key="byedpiPreLayer"
-                app:summary="@string/byedpi_pre_layer_sum"
-                app:title="@string/byedpi_pre_layer" />
             <SwitchPreference
                 app:icon="@drawable/ic_baseline_speed_24"
                 app:key="byedpiAuto"

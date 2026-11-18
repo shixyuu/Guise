@@ -98,6 +98,16 @@
 
         </io.nekohasekai.sagernet.widget.StatsBar>
 
+        <com.google.android.material.bottomnavigation.BottomNavigationView
+            android:id="@+id/bottom_nav"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:visibility="gone"
+            app:backgroundTint="?attr/colorSurfaceContainer"
+            app:labelVisibilityMode="labeled"
+            app:menu="@menu/expressive_bottom_menu" />
+
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
     <com.google.android.material.navigation.NavigationView

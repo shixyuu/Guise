@@ -83,8 +83,6 @@
     <string name="hysteria2_disable_loss_compensation_sum">Brutal 嚴格依上傳速度傳送，不因丟包加速</string>
     <string name="dual_net_udp_probe">UDP 探測間隔（秒，自動）</string>
     <string name="dual_net_udp_probe_sum">用於 Hysteria2/TUIC 等，僅有流量時探測；0 關閉</string>
-    <string name="byedpi_pre_layer">TCP 代理前置 ByeDPI</string>
-    <string name="byedpi_pre_layer_sum">對連線 TCP 代理伺服器的握手做 DPI 混淆</string>
     <string name="byedpi_auto">自動選擇策略</string>
     <string name="byedpi_auto_sum">保留最好的 12 個策略並自動切換</string>
     <string name="byedpi_auto_interval">重測間隔（分鐘）</string>
