@@ -149,6 +149,7 @@ object SmartDataSaver {
         val ipBlockedDomains: List<String>,
         val failedDnsDomains: List<String>,
         val uniqueIpsTested: Int,
+        val cdnProviders: Map<String, CdnAsnMatcher.CdnProvider> = emptyMap(),
     )
 
     fun candidateDomains(): List<String> {
@@ -187,25 +188,41 @@ object SmartDataSaver {
         } else null
 
         try {
-            // Step 1: DoH resolution
+            // Step 1: DoH resolution (via ByeDPI first if enabled, then direct DoH, then system DNS)
             val resolvedMap = mutableMapOf<String, InetAddress>()
             val failedDns = mutableListOf<String>()
             val dnsDone = AtomicInteger(0)
             onProgress(Progress(Phase.RESOLVING_DNS, 0, candidates.size))
 
-            coroutineScope {
-                candidates.map { host ->
-                    async {
-                        sem.withPermit {
-                            val addr = resolveDoh(host, dohServers, underlying)
-                                ?: resolveSystem(host, underlying)
-                            synchronized(resolvedMap) {
-                                if (addr != null) resolvedMap[host] = addr else failedDns.add(host)
+            val dnsByeDPI = if (dohServers.isNotEmpty() && DataStore.byedpiDnsViaByedpi) {
+                runCatching { startLocalByeDPI(protectPath) }.getOrNull()
+            } else null
+            val dnsProxy = dnsByeDPI?.let { Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", it.second)) }
+
+            try {
+                coroutineScope {
+                    candidates.map { host ->
+                        async {
+                            sem.withPermit {
+                                val addr = resolveDoh(host, dohServers, dnsProxy, underlying)
+                                    ?: (if (dnsProxy != null) resolveDoh(host, dohServers, null, underlying) else null)
+                                    ?: resolveSystem(host, underlying)
+                                synchronized(resolvedMap) {
+                                    if (addr != null) resolvedMap[host] = addr else failedDns.add(host)
+                                }
+                                onProgress(Progress(Phase.RESOLVING_DNS, dnsDone.incrementAndGet(), candidates.size))
                             }
-                            onProgress(Progress(Phase.RESOLVING_DNS, dnsDone.incrementAndGet(), candidates.size))
                         }
-                    }
-                }.awaitAll()
+                    }.awaitAll()
+                }
+            } finally {
+                dnsByeDPI?.first?.destroy()
+            }
+
+            // Tag resolved hosts with local CDN ASN (Cloudflare AS13335 / Fastly AS54113)
+            val cdnProviders = mutableMapOf<String, CdnAsnMatcher.CdnProvider>()
+            for ((host, addr) in resolvedMap) {
+                CdnAsnMatcher.matchAsn(addr)?.let { cdnProviders[host] = it }
             }
 
             // Step 2: Deduplicate by IPv4 address
@@ -276,7 +293,21 @@ object SmartDataSaver {
             }
 
             val sortedDpi = dpiConfirmed.distinct().sorted()
-            DataStore.smartSplitDomains = sortedDpi.joinToString("\n")
+            val blockedSet = ByeDPILearningStore.blockedDomains().toSet()
+            val merged = DataStore.smartSplitDomains
+                .lines()
+                .map { it.trim().lowercase() }
+                .filter { it.isNotEmpty() && !it.startsWith("#") }
+                .toMutableSet()
+            merged.removeAll(ipBlocked.toSet())
+            merged.removeAll(blockedSet)
+            sortedDpi.forEach { host ->
+                if (host !in blockedSet) {
+                    merged.add(host)
+                    ByeDPILearningStore.recordSuccess(host)
+                }
+            }
+            DataStore.smartSplitDomains = merged.sorted().joinToString("\n")
             Log.i(
                 TAG,
                 "SmartDataSaver scan done: ${sortedDpi.size} DPI-only, ${ipBlocked.size} IP-blocked, " +
@@ -287,6 +318,7 @@ object SmartDataSaver {
                 ipBlockedDomains = ipBlocked.distinct().sorted(),
                 failedDnsDomains = failedDns.distinct().sorted(),
                 uniqueIpsTested = uniqueIps.size,
+                cdnProviders = cdnProviders,
             )
         } finally {
             if (vpnIncludesSelf) DefaultNetworkListener.stop(listenerKey)

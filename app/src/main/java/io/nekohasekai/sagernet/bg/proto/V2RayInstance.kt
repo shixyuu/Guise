@@ -82,6 +82,7 @@ abstract class V2RayInstance(
 
     /** Guise: byedpi runs in its own pool so the automatic strategy selection can restart it. */
     private var byedpiProcesses: GuardedProcessPool? = null
+    private var learningRelay: ByeDPILearningRelay? = null
     private val byedpiMutex = Mutex()
 
     private fun buildByeDPICommands(args: String): List<String>? {
@@ -125,6 +126,13 @@ abstract class V2RayInstance(
         // Don't let the core dial 127.0.0.1:port before byedpi is listening.
         val ready = runBlocking(Dispatchers.IO) { ByeDPI.waitForListening(config.byedpiPort) }
         logByeDPIReady(config.byedpiPort, ready)
+        if (config.byedpiLearningRelayPort > 0 && config.byedpiFallbackPort > 0 && learningRelay == null) {
+            learningRelay = ByeDPILearningRelay(
+                relayPort = config.byedpiLearningRelayPort,
+                byedpiPort = config.byedpiPort,
+                fallbackPort = config.byedpiFallbackPort,
+            ).apply { start() }
+        }
     }
 
     /**

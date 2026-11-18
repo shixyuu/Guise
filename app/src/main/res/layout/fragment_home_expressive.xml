@@ -6,14 +6,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?attr/colorSurface"
-    android:paddingHorizontal="24dp">
+    android:paddingHorizontal="20dp">
 
-    <!-- Top Expressive Display Header -->
+    <!-- Top Expressive Display Header (Surfboard-inspired M3 Expressive) -->
     <LinearLayout
         android:id="@+id/status_header"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="28dp"
+        android:layout_marginTop="20dp"
         android:gravity="center_horizontal"
         android:orientation="vertical"
         app:layout_constraintEnd_toEndOf="parent"
@@ -29,14 +29,14 @@
             android:maxLines="1"
             android:text="@string/home_status_disconnected"
             android:textColor="?attr/colorOnSurface"
-            android:textSize="44sp"
+            android:textSize="42sp"
             android:textStyle="bold" />
 
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/mode_pill"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="10dp"
             android:clickable="true"
             android:focusable="true"
             app:cardBackgroundColor="?attr/colorSecondaryContainer"
@@ -50,7 +50,7 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingHorizontal="18dp"
-                android:paddingVertical="10dp">
+                android:paddingVertical="9dp">
 
                 <ImageView
                     android:layout_width="18dp"
@@ -76,17 +76,17 @@
     <!-- Center Hero Morphing Start/Stop Button + Rotating Orbit -->
     <FrameLayout
         android:id="@+id/hero_container"
-        android:layout_width="228dp"
-        android:layout_height="228dp"
-        app:layout_constraintBottom_toTopOf="@+id/footer_card"
+        android:layout_width="220dp"
+        android:layout_height="220dp"
+        app:layout_constraintBottom_toTopOf="@+id/dashboard_cards"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/status_header">
 
         <ImageView
             android:id="@+id/hero_orbit"
-            android:layout_width="224dp"
-            android:layout_height="224dp"
+            android:layout_width="216dp"
+            android:layout_height="216dp"
             android:layout_gravity="center"
             android:alpha="0.28"
             android:contentDescription="@null"
@@ -94,13 +94,13 @@
 
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/hero_button"
-            android:layout_width="168dp"
-            android:layout_height="168dp"
+            android:layout_width="164dp"
+            android:layout_height="164dp"
             android:layout_gravity="center"
             android:clickable="true"
             android:focusable="true"
             app:cardBackgroundColor="?attr/colorPrimaryContainer"
-            app:cardCornerRadius="84dp"
+            app:cardCornerRadius="82dp"
             app:cardElevation="0dp"
             app:strokeWidth="0dp">
 
@@ -112,8 +112,8 @@
 
                 <ImageView
                     android:id="@+id/hero_icon"
-                    android:layout_width="46dp"
-                    android:layout_height="46dp"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
                     android:contentDescription="@null"
                     app:srcCompat="@drawable/ic_expressive_power"
                     app:tint="?attr/colorOnPrimaryContainer" />
@@ -132,117 +132,135 @@
         </com.google.android.material.card.MaterialCardView>
     </FrameLayout>
 
-    <!-- Bottom Expressive Tonal Surface Card -->
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/footer_card"
+    <!-- Bottom Surfboard-style 2-Column Expressive Tonal Cards + Scan Button -->
+    <LinearLayout
+        android:id="@+id/dashboard_cards"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="20dp"
-        app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-        app:cardCornerRadius="28dp"
-        app:cardElevation="0dp"
+        android:layout_marginBottom="16dp"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:strokeWidth="0dp">
+        app:layout_constraintStart_toStartOf="parent">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_horizontal"
-            android:orientation="vertical"
-            android:paddingHorizontal="20dp"
-            android:paddingVertical="16dp">
+            android:baselineAligned="false"
+            android:orientation="horizontal">
 
-            <!-- Dual-highlight pills (visible in Smart Data-Saver Split mode) -->
-            <LinearLayout
-                android:id="@+id/smart_split_row"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="10dp"
-                android:gravity="center"
-                android:orientation="horizontal"
-                android:visibility="gone"
-                tools:visibility="visible">
+            <!-- Left Card: Active Node / Smart Split -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/node_info_card"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1"
+                app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
+                app:cardCornerRadius="24dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
 
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/pill_byedpi"
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    app:cardBackgroundColor="?attr/colorTertiaryContainer"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="0dp"
-                    app:strokeWidth="0dp">
+                    android:orientation="vertical"
+                    android:padding="16dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:fontFamily="sans-serif-medium"
-                        android:paddingHorizontal="12dp"
-                        android:paddingVertical="6dp"
-                        android:text="ByeDPI"
-                        android:textColor="?attr/colorOnTertiaryContainer"
+                        android:text="@string/tab_nodes"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:textSize="12sp" />
-                </com.google.android.material.card.MaterialCardView>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="6dp"
-                    android:text="+"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textSize="13sp" />
-
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/pill_proxy"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    app:cardBackgroundColor="?attr/colorPrimaryContainer"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="0dp"
-                    app:strokeWidth="0dp">
 
                     <TextView
                         android:id="@+id/pill_proxy_name"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
                         android:ellipsize="end"
                         android:fontFamily="sans-serif-medium"
-                        android:maxWidth="180dp"
                         android:maxLines="1"
-                        android:paddingHorizontal="12dp"
-                        android:paddingVertical="6dp"
-                        android:textColor="?attr/colorOnPrimaryContainer"
-                        android:textSize="12sp"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="14sp"
                         tools:text="Tokyo VLESS" />
-                </com.google.android.material.card.MaterialCardView>
-            </LinearLayout>
 
-            <!-- Exit IP & Country -->
-            <TextView
-                android:id="@+id/exit_ip_text"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                    <LinearLayout
+                        android:id="@+id/smart_split_row"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:orientation="horizontal"
+                        android:visibility="gone"
+                        tools:visibility="visible">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_pill_tonal"
+                            android:fontFamily="sans-serif-medium"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="2dp"
+                            android:text="ByeDPI + 代理"
+                            android:textColor="?attr/colorOnTertiaryContainer"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Right Card: Exit IP & Country -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/exit_ip_card"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
                 android:clickable="true"
                 android:focusable="true"
-                android:fontFamily="sans-serif-medium"
-                android:gravity="center"
-                android:paddingHorizontal="12dp"
-                android:paddingVertical="6dp"
-                android:text="@string/home_exit_unknown"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:textSize="14sp" />
+                app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
+                app:cardCornerRadius="24dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_smart_scan"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/home_smart_scan"
-                android:visibility="gone"
-                tools:visibility="visible" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="出口 IP"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/exit_ip_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:ellipsize="end"
+                        android:fontFamily="sans-serif-medium"
+                        android:maxLines="2"
+                        android:text="@string/home_exit_unknown"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="14sp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_smart_scan"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/home_smart_scan"
+            android:visibility="gone"
+            tools:visibility="visible" />
+    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

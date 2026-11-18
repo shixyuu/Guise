@@ -32,6 +32,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import com.google.android.material.appbar.AppBarLayout
+import com.google.android.material.color.DynamicColors
 import com.google.android.material.snackbar.Snackbar
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.R
@@ -63,6 +64,11 @@ abstract class ThemedActivity : AppCompatActivity {
             Type.Dialog -> {
                 Theme.applyDialog(this)
             }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            (DataStore.appTheme == Theme.DYNAMIC || DataStore.uiStyle == 0)
+        ) {
+            DynamicColors.applyToActivityIfAvailable(this)
         }
         Theme.applyNightTheme()
 

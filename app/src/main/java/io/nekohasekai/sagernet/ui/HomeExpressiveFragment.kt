@@ -82,7 +82,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             showProtectionModeDialog()
         }
 
-        binding.exitIpText.setOnClickListener {
+        binding.exitIpCard.setOnClickListener {
             val state = (activity as? MainActivity)?.state ?: BaseService.State.Idle
             if (state == BaseService.State.Connected) {
                 refreshExitIp()
@@ -130,8 +130,8 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             else -> getString(R.string.home_tap_start)
         }
 
-        // Expressive shape morph: circle (78dp) when idle -> rounded squircle (36dp) when connected
-        val targetRadius = dp2px(if (connected || connecting) 36 else 78).toFloat()
+        // Expressive shape morph: circle (82dp) when idle -> rounded squircle (41dp) when connected
+        val targetRadius = dp2px(if (connected || connecting) 41 else 82).toFloat()
         if (binding.heroButton.radius != targetRadius) {
             ValueAnimator.ofFloat(binding.heroButton.radius, targetRadius).apply {
                 duration = 320
@@ -201,17 +201,16 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         }
 
         val isSmartSplit = mode == ProtectionMode.SMART_SPLIT
+        val canScan = isSmartSplit || (mode == ProtectionMode.MANUAL && DataStore.byedpiEnabled)
         binding.smartSplitRow.visibility = if (isSmartSplit) View.VISIBLE else View.GONE
-        binding.btnSmartScan.visibility = if (isSmartSplit) View.VISIBLE else View.GONE
-        if (isSmartSplit) {
-            runOnDefaultDispatcher {
-                val proxyName = runCatching {
-                    SagerDatabase.proxyDao.getById(DataStore.selectedProxy)?.displayName()
-                }.getOrNull() ?: getString(R.string.profile_empty)
-                onMainDispatcher {
-                    if (_binding != null) {
-                        binding.pillProxyName.text = proxyName
-                    }
+        binding.btnSmartScan.visibility = if (canScan) View.VISIBLE else View.GONE
+        runOnDefaultDispatcher {
+            val proxyName = runCatching {
+                SagerDatabase.proxyDao.getById(DataStore.selectedProxy)?.displayName()
+            }.getOrNull() ?: getString(R.string.profile_empty)
+            onMainDispatcher {
+                if (_binding != null) {
+                    binding.pillProxyName.text = proxyName
                 }
             }
         }

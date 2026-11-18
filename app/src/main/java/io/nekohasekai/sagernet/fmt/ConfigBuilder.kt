@@ -171,6 +171,9 @@ class V2rayBuildResult(
     val byedpiPort: Int = 0,
     // Guise: true if at least one outbound carries DualNet.SPLIT_MARK
     val dualNetSplit: Boolean = false,
+    // Guise: CDN learning relay ports (0 = learning mode disabled)
+    val byedpiLearningRelayPort: Int = 0,
+    val byedpiFallbackPort: Int = 0,
 ) {
     data class IndexEntity(var isBalancer: Boolean, var chain: LinkedHashMap<Triple<Int, String, String>, ProxyEntity>)
 }
