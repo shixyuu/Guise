@@ -646,13 +646,50 @@ class MainActivity : ThemedActivity(),
         }
     }
 
+    private val lanPeerRequestReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            if (intent?.action != io.nekohasekai.sagernet.dualnet.LanPeerManager.ACTION_PEER_REQUEST) return
+            val clientId = intent.getStringExtra(io.nekohasekai.sagernet.dualnet.LanPeerManager.EXTRA_CLIENT_ID) ?: return
+            val clientName = intent.getStringExtra(io.nekohasekai.sagernet.dualnet.LanPeerManager.EXTRA_CLIENT_NAME) ?: clientId
+            val clientIp = intent.getStringExtra(io.nekohasekai.sagernet.dualnet.LanPeerManager.EXTRA_CLIENT_IP) ?: ""
+            if (isFinishing || isDestroyed) return
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(R.string.lan_peer_confirm_title)
+                .setMessage(getString(R.string.lan_peer_confirm_message, clientName, clientIp))
+                .setPositiveButton(R.string.lan_peer_allow) { _, _ ->
+                    io.nekohasekai.sagernet.dualnet.LanPeerManager.trustPeer(clientId, clientName)
+                    sendLanPeerDecision(clientId, clientName, true)
+                }
+                .setNegativeButton(R.string.lan_peer_deny) { _, _ ->
+                    sendLanPeerDecision(clientId, clientName, false)
+                }
+                .show()
+        }
+    }
+
+    private fun sendLanPeerDecision(clientId: String, clientName: String, allow: Boolean) {
+        sendBroadcast(android.content.Intent(io.nekohasekai.sagernet.dualnet.LanPeerManager.ACTION_PEER_DECISION).apply {
+            setPackage(packageName)
+            putExtra(io.nekohasekai.sagernet.dualnet.LanPeerManager.EXTRA_CLIENT_ID, clientId)
+            putExtra(io.nekohasekai.sagernet.dualnet.LanPeerManager.EXTRA_CLIENT_NAME, clientName)
+            putExtra(io.nekohasekai.sagernet.dualnet.LanPeerManager.EXTRA_ALLOW, allow)
+        })
+    }
+
     override fun onStart() {
         super.onStart()
         connection.bandwidthTimeout = 1000
         GroupManager.userInterface = userInterface
+        androidx.core.content.ContextCompat.registerReceiver(
+            this,
+            lanPeerRequestReceiver,
+            android.content.IntentFilter(io.nekohasekai.sagernet.dualnet.LanPeerManager.ACTION_PEER_REQUEST),
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
     }
 
     override fun onStop() {
+        runCatching { unregisterReceiver(lanPeerRequestReceiver) }
         connection.bandwidthTimeout = 0
         GroupManager.userInterface = null
         super.onStop()

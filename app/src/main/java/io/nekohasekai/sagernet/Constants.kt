@@ -144,6 +144,13 @@ object Key {
     const val DUAL_NET_SAMPLE_KB = "dualNetSampleKb"
     const val DUAL_NET_UDP_PROBE_INTERVAL = "dualNetUdpProbeInterval"
     const val DUAL_NET_STATUS = "dualNetStatus"
+    const val LAN_PEER_BORROW_ENABLED = "lanPeerBorrowEnabled"
+    const val LAN_PEER_SHARE_ENABLED = "lanPeerShareEnabled"
+    const val LAN_PEER_SHARE_LIMIT_MB = "lanPeerShareLimitMb"
+    const val LAN_PEER_SHARE_USED_BYTES = "lanPeerShareUsedBytes"
+    const val LAN_PEER_TRUSTED = "lanPeerTrusted"
+    const val LAN_PEER_DEVICE_ID = "lanPeerDeviceId"
+    const val LAN_PEER_TOKEN = "lanPeerToken"
     const val BYEDPI_PROBE_TARGETS = "byedpiProbeTargets"
     const val BYEDPI_PROBE_CUSTOM = "byedpiProbeCustom"
     const val BYEDPI_PROBE_DOH = "byedpiProbeDoh"
@@ -468,7 +475,6 @@ object TLS_FRAGMENTATION_METHOD {
 object ProtectionMode {
     const val MANUAL = 0
     const val SMART_SPLIT = 1
-    const val STANDARD = 2
-    const val BALANCED = 3
-    const val STRICT = 4
+    const val STRICT = 2
+    const val TURBO = 3
 }

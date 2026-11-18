@@ -23,16 +23,14 @@
     <string-array name="protection_mode_entry">
         <item>@string/protection_mode_manual</item>
         <item>@string/protection_mode_smart_split</item>
-        <item>@string/protection_mode_standard</item>
-        <item>@string/protection_mode_balanced</item>
         <item>@string/protection_mode_strict</item>
+        <item>@string/protection_mode_turbo</item>
     </string-array>
     <string-array name="protection_mode_value" translatable="false">
         <item>0</item>
         <item>1</item>
         <item>2</item>
         <item>3</item>
-        <item>4</item>
     </string-array>
     <string-array name="ui_style_entry">
         <item>@string/ui_style_expressive</item>

@@ -83,13 +83,17 @@ class ProxyInstance(profile: ProxyEntity, val service: BaseService.Interface) : 
         val shaperLevel = DataStore.effectiveShaperLevel
         Libexclavecore.setTrafficShaper(shaperLevel)
         val dualNetOn = DataStore.effectiveDualNetEnabled
-        if (dualNetOn) {
+        val lanBorrow = DataStore.effectiveLanBorrowEnabled
+        val lanShare = DataStore.effectiveLanShareEnabled
+        if (dualNetOn || lanShare) {
             val manager = DualNetworkManager(
                 DataStore.effectiveDualNetStrategy,
                 DataStore.dualNetSingleNetwork,
                 DataStore.dualNetSampleKb,
-                config.dualNetSplit,
+                dualNetOn && config.dualNetSplit,
                 DataStore.dualNetUdpProbeInterval,
+                lanBorrow,
+                lanShare,
             )
             manager.start()
             Libexclavecore.setSocketBinder(manager)

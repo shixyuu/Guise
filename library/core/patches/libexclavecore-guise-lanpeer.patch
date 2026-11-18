@@ -1,0 +1,685 @@
+From fad121be73e4268887ac0df71c3c665e6f46aa08 Mon Sep 17 00:00:00 2001
+From: Guise <guise@localhost>
+Date: Wed, 18 Nov 2026 05:56:11 +0000
+Subject: [PATCH] Guise: LAN peer SOCKS5 relay and client dialer with anti-loop
+ and quota
+
+---
+ dialer.go       |  16 ++
+ lanpeer.go      | 480 ++++++++++++++++++++++++++++++++++++++++++++++++
+ lanpeer_test.go | 117 ++++++++++++
+ multinet.go     |  13 ++
+ 4 files changed, 626 insertions(+)
+ create mode 100644 lanpeer.go
+ create mode 100644 lanpeer_test.go
+
+diff --git a/dialer.go b/dialer.go
+index 9e30eaf..9c546e5 100644
+--- a/dialer.go
++++ b/dialer.go
+@@ -111,6 +111,22 @@ func (dialer protectedDialer) dial(ctx context.Context, src v2rayNet.Address, de
+ 	}
+ 	switch dest.Network {
+ 	case v2rayNet.Network_TCP:
++		if split && label != "" {
++			if endpoint := peerDialEndpoint(label); endpoint != "" {
++				connectStart := time.Now()
++				conn, err := dialViaLanPeer(fd, endpoint, dest)
++				reportConnect(label, time.Since(connectStart), err)
++				if err != nil {
++					unix.Close(fd)
++					return nil, err
++				}
++				trackSplitConn(conn, label)
++				if shape {
++					conn = wrapShapedConn(conn)
++				}
++				return conn, nil
++			}
++		}
+ 		var sockaddr unix.Sockaddr
+ 		if dest.Address.Family().IsIPv4() {
+ 			sockaddrInet4 := &unix.SockaddrInet4{
+diff --git a/lanpeer.go b/lanpeer.go
+new file mode 100644
+index 0000000..988ff80
+--- /dev/null
++++ b/lanpeer.go
+@@ -0,0 +1,480 @@
++/*
++Copyright (C) 2026 Guise contributors
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with this program.  If not, see <https://www.gnu.org/licenses/>.
++*/
++
++package libexclavecore
++
++import (
++	"encoding/binary"
++	"errors"
++	"fmt"
++	"io"
++	"net"
++	"os"
++	"strconv"
++	"strings"
++	"sync"
++	"time"
++
++	v2rayNet "github.com/exclavenetwork/exclave-core/v5/common/net"
++	"golang.org/x/sys/unix"
++)
++
++// LanPeerAuthorizer is implemented by Kotlin (:bg) to authorize LAN peers,
++// enforce anti-loop binding to physical cellular, and track shared traffic quota.
++type LanPeerAuthorizer interface {
++	// AuthorizePeer returns 1 if allowed, 0 if pending user confirmation, -1 if denied/over-quota.
++	AuthorizePeer(clientId string, clientName string, clientIp string, token string) int32
++	// ReportPeerTraffic records relayed bytes for clientId; returns false if quota exceeded or revoked.
++	ReportPeerTraffic(clientId string, bytes int64) bool
++	// BindHostSocket binds an outbound relay socket strictly to the host's physical cellular network.
++	BindHostSocket(fd int32) bool
++}
++
++var (
++	lanServerMu       sync.Mutex
++	lanServerListener net.Listener
++	lanServerAuth     LanPeerAuthorizer
++)
++
++// StartLanPeerServer starts the authenticated SOCKS5 relay for LAN peers on port (0 = ephemeral).
++// Returns the actual listening port.
++func StartLanPeerServer(port int32, auth LanPeerAuthorizer) (int32, error) {
++	if auth == nil {
++		return 0, errors.New("authorizer is nil")
++	}
++	lanServerMu.Lock()
++	defer lanServerMu.Unlock()
++
++	if lanServerListener != nil {
++		_ = lanServerListener.Close()
++		lanServerListener = nil
++	}
++
++	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
++	if err != nil {
++		return 0, err
++	}
++	lanServerListener = ln
++	lanServerAuth = auth
++
++	actualPort := int32(ln.Addr().(*net.TCPAddr).Port)
++	go serveLanPeerListener(ln, auth)
++	return actualPort, nil
++}
++
++// StopLanPeerServer stops the LAN peer relay server if running.
++func StopLanPeerServer() {
++	lanServerMu.Lock()
++	ln := lanServerListener
++	lanServerListener = nil
++	lanServerAuth = nil
++	lanServerMu.Unlock()
++	if ln != nil {
++		_ = ln.Close()
++	}
++}
++
++func serveLanPeerListener(ln net.Listener, auth LanPeerAuthorizer) {
++	for {
++		conn, err := ln.Accept()
++		if err != nil {
++			return
++		}
++		go handleLanPeerConn(conn, auth)
++	}
++}
++
++func handleLanPeerConn(clientConn net.Conn, auth LanPeerAuthorizer) {
++	defer clientConn.Close()
++	_ = clientConn.SetDeadline(time.Now().Add(10 * time.Second))
++
++	// 1. SOCKS5 greeting
++	var hdr [2]byte
++	if _, err := io.ReadFull(clientConn, hdr[:]); err != nil || hdr[0] != 0x05 || hdr[1] == 0 {
++		return
++	}
++	methods := make([]byte, int(hdr[1]))
++	if _, err := io.ReadFull(clientConn, methods); err != nil {
++		return
++	}
++	hasUserPass := false
++	for _, m := range methods {
++		if m == 0x02 {
++			hasUserPass = true
++			break
++		}
++	}
++	if !hasUserPass {
++		_, _ = clientConn.Write([]byte{0x05, 0xFF})
++		return
++	}
++	if _, err := clientConn.Write([]byte{0x05, 0x02}); err != nil {
++		return
++	}
++
++	// 2. RFC 1929 Username/Password auth: username = "clientId|clientName", password = token
++	var authVer [2]byte
++	if _, err := io.ReadFull(clientConn, authVer[:]); err != nil || authVer[0] != 0x01 {
++		return
++	}
++	uBuf := make([]byte, int(authVer[1]))
++	if _, err := io.ReadFull(clientConn, uBuf); err != nil {
++		return
++	}
++	var pLen [1]byte
++	if _, err := io.ReadFull(clientConn, pLen[:]); err != nil {
++		return
++	}
++	pBuf := make([]byte, int(pLen[0]))
++	if _, err := io.ReadFull(clientConn, pBuf); err != nil {
++		return
++	}
++
++	username := string(uBuf)
++	clientId := username
++	clientName := username
++	if idx := strings.IndexByte(username, '|'); idx >= 0 {
++		clientId = username[:idx]
++		clientName = username[idx+1:]
++	}
++	token := string(pBuf)
++	clientIp := ""
++	if tcpAddr, ok := clientConn.RemoteAddr().(*net.TCPAddr); ok {
++		clientIp = tcpAddr.IP.String()
++	}
++
++	if auth.AuthorizePeer(clientId, clientName, clientIp, token) != 1 {
++		_, _ = clientConn.Write([]byte{0x01, 0x01})
++		return
++	}
++	if _, err := clientConn.Write([]byte{0x01, 0x00}); err != nil {
++		return
++	}
++
++	// 3. SOCKS5 CONNECT request
++	var req [4]byte
++	if _, err := io.ReadFull(clientConn, req[:]); err != nil || req[0] != 0x05 || req[1] != 0x01 {
++		_, _ = clientConn.Write([]byte{0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
++		return
++	}
++
++	var targetIP net.IP
++	switch req[3] {
++	case 0x01: // IPv4
++		var ip4 [4]byte
++		if _, err := io.ReadFull(clientConn, ip4[:]); err != nil {
++			return
++		}
++		targetIP = net.IP(ip4[:])
++	case 0x04: // IPv6
++		var ip16 [16]byte
++		if _, err := io.ReadFull(clientConn, ip16[:]); err != nil {
++			return
++		}
++		targetIP = net.IP(ip16[:])
++	case 0x03: // Domain
++		var dLen [1]byte
++		if _, err := io.ReadFull(clientConn, dLen[:]); err != nil {
++			return
++		}
++		domain := make([]byte, int(dLen[0]))
++		if _, err := io.ReadFull(clientConn, domain); err != nil {
++			return
++		}
++		ips, err := net.LookupIP(string(domain))
++		if err != nil || len(ips) == 0 {
++			_, _ = clientConn.Write([]byte{0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
++			return
++		}
++		targetIP = ips[0]
++	default:
++		_, _ = clientConn.Write([]byte{0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
++		return
++	}
++
++	var portBuf [2]byte
++	if _, err := io.ReadFull(clientConn, portBuf[:]); err != nil {
++		return
++	}
++	targetPort := int(binary.BigEndian.Uint16(portBuf[:]))
++
++	// 4. Dial target strictly bound to host's physical cellular network (anti-loop)
++	targetConn, err := dialBoundHostSocket(targetIP, targetPort, auth)
++	if err != nil {
++		_, _ = clientConn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
++		return
++	}
++	defer targetConn.Close()
++
++	if _, err := clientConn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
++		return
++	}
++	_ = clientConn.SetDeadline(time.Time{})
++
++	// 5. Bidirectional relay with traffic quota enforcement
++	done := make(chan struct{}, 2)
++	go func() {
++		copyWithPeerQuota(targetConn, clientConn, clientId, auth)
++		done <- struct{}{}
++	}()
++	go func() {
++		copyWithPeerQuota(clientConn, targetConn, clientId, auth)
++		done <- struct{}{}
++	}()
++	<-done
++}
++
++var allowLoopbackForTest bool
++
++func dialBoundHostSocket(ip net.IP, port int, auth LanPeerAuthorizer) (net.Conn, error) {
++	if (!allowLoopbackForTest && ip.IsLoopback()) || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
++		return nil, errors.New("disallowed target address")
++	}
++	var fd int
++	var err error
++	var sockaddr unix.Sockaddr
++
++	if ip4 := ip.To4(); ip4 != nil {
++		fd, err = unix.Socket(unix.AF_INET, unix.SOCK_STREAM, unix.IPPROTO_TCP)
++		if err != nil {
++			return nil, err
++		}
++		sa := &unix.SockaddrInet4{Port: port}
++		copy(sa.Addr[:], ip4)
++		sockaddr = sa
++	} else {
++		ip16 := ip.To16()
++		if ip16 == nil {
++			return nil, errors.New("invalid IP")
++		}
++		fd, err = unix.Socket(unix.AF_INET6, unix.SOCK_STREAM, unix.IPPROTO_TCP)
++		if err != nil {
++			return nil, err
++		}
++		sa := &unix.SockaddrInet6{Port: port}
++		copy(sa.Addr[:], ip16)
++		sockaddr = sa
++	}
++
++	if !auth.BindHostSocket(int32(fd)) {
++		unix.Close(fd)
++		return nil, errors.New("bind host cellular failed (anti-loop)")
++	}
++
++	tv := unix.NsecToTimeval((8 * time.Second).Nanoseconds())
++	_ = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_SNDTIMEO, &tv)
++
++	if err := unix.Connect(fd, sockaddr); err != nil {
++		unix.Close(fd)
++		return nil, err
++	}
++
++	file := os.NewFile(uintptr(fd), "lanpeer-out")
++	if file == nil {
++		unix.Close(fd)
++		return nil, errors.New("os.NewFile failed")
++	}
++	defer file.Close()
++	conn, err := net.FileConn(file)
++	if err != nil {
++		unix.Close(fd)
++		return nil, err
++	}
++	return conn, nil
++}
++
++func copyWithPeerQuota(dst net.Conn, src net.Conn, clientId string, auth LanPeerAuthorizer) {
++	buf := make([]byte, 32*1024)
++	var pending int64
++	for {
++		n, rErr := src.Read(buf)
++		if n > 0 {
++			if _, wErr := dst.Write(buf[:n]); wErr != nil {
++				break
++			}
++			pending += int64(n)
++			if pending >= 64*1024 {
++				if !auth.ReportPeerTraffic(clientId, pending) {
++					_ = dst.Close()
++					_ = src.Close()
++					return
++				}
++				pending = 0
++			}
++		}
++		if rErr != nil {
++			break
++		}
++	}
++	if pending > 0 {
++		if !auth.ReportPeerTraffic(clientId, pending) {
++			_ = dst.Close()
++			_ = src.Close()
++		}
++	}
++}
++
++// dialViaLanPeer connects fd to the LAN peer's SOCKS5 relay and tunnels to dest.
++// endpoint format: "ip:port|clientId|clientName|token"
++func dialViaLanPeer(fd int, endpoint string, dest v2rayNet.Destination) (net.Conn, error) {
++	parts := strings.SplitN(endpoint, "|", 4)
++	if len(parts) < 4 {
++		return nil, errors.New("invalid peer endpoint")
++	}
++	peerAddr, clientId, clientName, token := parts[0], parts[1], parts[2], parts[3]
++
++	host, portStr, err := net.SplitHostPort(peerAddr)
++	if err != nil {
++		return nil, err
++	}
++	peerPort, err := strconv.Atoi(portStr)
++	if err != nil {
++		return nil, err
++	}
++	peerIP := net.ParseIP(host)
++	if peerIP == nil {
++		return nil, errors.New("invalid peer IP")
++	}
++
++	// Detect socket family so IPv4 peer works even if fd was created as AF_INET6
++	var sa unix.Sockaddr
++	if ip4 := peerIP.To4(); ip4 != nil {
++		// Check if fd is AF_INET6; on Linux dual-stack AF_INET6 accepts ::ffff:ip4
++		if _, err6 := unix.GetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY); err6 == nil {
++			sa6 := &unix.SockaddrInet6{Port: peerPort}
++			copy(sa6.Addr[:], peerIP.To16())
++			sa = sa6
++		} else {
++			sa4 := &unix.SockaddrInet4{Port: peerPort}
++			copy(sa4.Addr[:], ip4)
++			sa = sa4
++		}
++	} else {
++		sa6 := &unix.SockaddrInet6{Port: peerPort}
++		copy(sa6.Addr[:], peerIP.To16())
++		sa = sa6
++	}
++
++	tv := unix.NsecToTimeval((4 * time.Second).Nanoseconds())
++	_ = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_SNDTIMEO, &tv)
++
++	if err := unix.Connect(fd, sa); err != nil {
++		return nil, err
++	}
++
++	file := os.NewFile(uintptr(fd), "lanpeer-in")
++	if file == nil {
++		return nil, errors.New("os.NewFile failed")
++	}
++	defer file.Close()
++
++	conn, err := net.FileConn(file)
++	if err != nil {
++		return nil, err
++	}
++
++	if err := socks5ClientHandshake(conn, clientId+"|"+clientName, token, dest); err != nil {
++		_ = conn.Close()
++		return nil, err
++	}
++	return conn, nil
++}
++
++func socks5ClientHandshake(conn net.Conn, username string, password string, dest v2rayNet.Destination) error {
++	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
++	defer conn.SetDeadline(time.Time{})
++
++	// 1. Greeting: SOCKS5, 1 auth method (username/password 0x02)
++	if _, err := conn.Write([]byte{0x05, 0x01, 0x02}); err != nil {
++		return err
++	}
++	var methodResp [2]byte
++	if _, err := io.ReadFull(conn, methodResp[:]); err != nil {
++		return err
++	}
++	if methodResp[0] != 0x05 || methodResp[1] != 0x02 {
++		return errors.New("peer rejected SOCKS5 auth method")
++	}
++
++	// 2. RFC 1929 auth
++	if len(username) > 255 {
++		username = username[:255]
++	}
++	if len(password) > 255 {
++		password = password[:255]
++	}
++	authMsg := make([]byte, 0, 3+len(username)+len(password))
++	authMsg = append(authMsg, 0x01, byte(len(username)))
++	authMsg = append(authMsg, username...)
++	authMsg = append(authMsg, byte(len(password)))
++	authMsg = append(authMsg, password...)
++	if _, err := conn.Write(authMsg); err != nil {
++		return err
++	}
++	var authResp [2]byte
++	if _, err := io.ReadFull(conn, authResp[:]); err != nil {
++		return err
++	}
++	if authResp[1] != 0x00 {
++		return errors.New("peer authorization pending or denied")
++	}
++
++	// 3. CONNECT request
++	req := make([]byte, 0, 22)
++	req = append(req, 0x05, 0x01, 0x00)
++	ip := dest.Address.IP()
++	if ip4 := ip.To4(); ip4 != nil {
++		req = append(req, 0x01)
++		req = append(req, ip4...)
++	} else {
++		req = append(req, 0x04)
++		req = append(req, ip.To16()...)
++	}
++	var p [2]byte
++	binary.BigEndian.PutUint16(p[:], uint16(dest.Port))
++	req = append(req, p[:]...)
++	if _, err := conn.Write(req); err != nil {
++		return err
++	}
++
++	var rep [4]byte
++	if _, err := io.ReadFull(conn, rep[:]); err != nil {
++		return err
++	}
++	if rep[1] != 0x00 {
++		return fmt.Errorf("peer SOCKS5 connect failed: 0x%02x", rep[1])
++	}
++	switch rep[3] {
++	case 0x01:
++		var skip [6]byte
++		_, err := io.ReadFull(conn, skip[:])
++		return err
++	case 0x04:
++		var skip [18]byte
++		_, err := io.ReadFull(conn, skip[:])
++		return err
++	case 0x03:
++		var l [1]byte
++		if _, err := io.ReadFull(conn, l[:]); err != nil {
++			return err
++		}
++		skip := make([]byte, int(l[0])+2)
++		_, err := io.ReadFull(conn, skip)
++		return err
++	}
++	return nil
++}
+diff --git a/lanpeer_test.go b/lanpeer_test.go
+new file mode 100644
+index 0000000..2aa0fd9
+--- /dev/null
++++ b/lanpeer_test.go
+@@ -0,0 +1,117 @@
++package libexclavecore
++
++import (
++	"fmt"
++	"io"
++	"net"
++	"sync/atomic"
++	"testing"
++
++	v2rayNet "github.com/exclavenetwork/exclave-core/v5/common/net"
++	"golang.org/x/sys/unix"
++)
++
++type testLanAuth struct {
++	allow    atomic.Int32
++	bindOk   atomic.Bool
++	quotaMax int64
++	used     atomic.Int64
++	lastName atomic.Value
++}
++
++func (a *testLanAuth) AuthorizePeer(clientId, clientName, clientIp, token string) int32 {
++	a.lastName.Store(clientName)
++	return a.allow.Load()
++}
++
++func (a *testLanAuth) ReportPeerTraffic(clientId string, bytes int64) bool {
++	total := a.used.Add(bytes)
++	if a.quotaMax > 0 && total > a.quotaMax {
++		return false
++	}
++	return true
++}
++
++func (a *testLanAuth) BindHostSocket(fd int32) bool {
++	return a.bindOk.Load()
++}
++
++func TestLanPeerServerRelayAndQuota(t *testing.T) {
++	allowLoopbackForTest = true
++	defer func() { allowLoopbackForTest = false }()
++
++	// Echo server as target
++	echoLn, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer echoLn.Close()
++	go func() {
++		for {
++			c, err := echoLn.Accept()
++			if err != nil {
++				return
++			}
++			go func(conn net.Conn) {
++				defer conn.Close()
++				_, _ = io.Copy(conn, conn)
++			}(c)
++		}
++	}()
++	echoAddr := echoLn.Addr().(*net.TCPAddr)
++
++	auth := &testLanAuth{quotaMax: 0}
++	auth.allow.Store(1)
++	auth.bindOk.Store(true)
++
++	port, err := StartLanPeerServer(0, auth)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer StopLanPeerServer()
++
++	// 1. Successful dialViaLanPeer
++	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, unix.IPPROTO_TCP)
++	if err != nil {
++		t.Fatal(err)
++	}
++	dest := v2rayNet.TCPDestination(v2rayNet.IPAddress(echoAddr.IP), v2rayNet.Port(echoAddr.Port))
++	endpoint := fmt.Sprintf("127.0.0.1:%d|dev1|Pixel8|tok123", port)
++	conn, err := dialViaLanPeer(fd, endpoint, dest)
++	if err != nil {
++		unix.Close(fd)
++		t.Fatalf("dialViaLanPeer failed: %v", err)
++	}
++	msg := []byte("hello-lan-peer")
++	if _, err := conn.Write(msg); err != nil {
++		t.Fatal(err)
++	}
++	buf := make([]byte, len(msg))
++	if _, err := io.ReadFull(conn, buf); err != nil {
++		t.Fatal(err)
++	}
++	if string(buf) != string(msg) {
++		t.Fatalf("got %q, want %q", buf, msg)
++	}
++	conn.Close()
++	if got := auth.lastName.Load(); got != "Pixel8" {
++		t.Fatalf("clientName = %v, want Pixel8", got)
++	}
++
++	// 2. Denied authorization
++	auth.allow.Store(-1)
++	fd2, _ := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, unix.IPPROTO_TCP)
++	if _, err := dialViaLanPeer(fd2, endpoint, dest); err == nil {
++		t.Fatal("expected error when peer denied")
++	}
++	unix.Close(fd2)
++
++	// 3. Anti-loop: BindHostSocket=false must reject
++	auth.allow.Store(1)
++	auth.bindOk.Store(false)
++	fd3, _ := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, unix.IPPROTO_TCP)
++	if _, err := dialViaLanPeer(fd3, endpoint, dest); err == nil {
++		t.Fatal("expected error when BindHostSocket fails")
++	}
++	unix.Close(fd3)
++}
+diff --git a/multinet.go b/multinet.go
+index 1b69333..7551ebb 100644
+--- a/multinet.go
++++ b/multinet.go
+@@ -61,6 +61,9 @@ type SocketBinder interface {
+ 	// UdpProbeState tells which probe method is used for a UDP server ("quic-vn",
+ 	// "tcp-connect", "off") and whether it has been answered yet.
+ 	UdpProbeState(destination string, method string, proven bool)
++	// PeerDialEndpoint returns "ip:port|clientId|clientName|token" if label refers to a LAN
++	// peer relay, or "" for local physical networks.
++	PeerDialEndpoint(label string) string
+ }
+ 
+ var (
+@@ -120,6 +123,16 @@ func bindDialSocket(fd int, dest v2rayNet.Destination, split bool) string {
+ 	return label
+ }
+ 
++func peerDialEndpoint(label string) string {
++	if label == "" {
++		return ""
++	}
++	if binder := currentSocketBinder(); binder != nil {
++		return binder.PeerDialEndpoint(label)
++	}
++	return ""
++}
++
+ func bindProtectedFd(fd int) {
+ 	if binder := currentSocketBinder(); binder != nil {
+ 		binder.BindSocket(int32(fd), "", false, false)
+-- 
+2.39.5
+

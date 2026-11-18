@@ -260,12 +260,11 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
     private fun updateModeAndCards(
         connected: Boolean = ((activity as? MainActivity)?.state == BaseService.State.Connected)
     ) {
-        val mode = DataStore.protectionMode
+        val mode = DataStore.effectiveProtectionMode
         val modeText = when (mode) {
             ProtectionMode.SMART_SPLIT -> getString(R.string.protection_mode_smart_split)
-            ProtectionMode.STANDARD -> getString(R.string.protection_mode_standard)
-            ProtectionMode.BALANCED -> getString(R.string.protection_mode_balanced)
             ProtectionMode.STRICT -> getString(R.string.protection_mode_strict)
+            ProtectionMode.TURBO -> getString(R.string.protection_mode_turbo)
             else -> getString(R.string.protection_mode_manual)
         }
         binding.modePill.text = modeText
@@ -273,9 +272,8 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         binding.heroModeDesc.text = getString(
             when (mode) {
                 ProtectionMode.SMART_SPLIT -> R.string.protection_mode_desc_smart_split
-                ProtectionMode.STANDARD -> R.string.protection_mode_desc_standard
-                ProtectionMode.BALANCED -> R.string.protection_mode_desc_balanced
                 ProtectionMode.STRICT -> R.string.protection_mode_desc_strict
+                ProtectionMode.TURBO -> R.string.protection_mode_desc_turbo
                 else -> R.string.protection_mode_desc_manual
             }
         ).replace(" · ", "\n")
@@ -415,10 +413,10 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
 
     private fun startDualEngineTicker(connected: Boolean) {
         dualEngineTickerJob?.cancel()
-        val mode = DataStore.protectionMode
+        val mode = DataStore.effectiveProtectionMode
         val badgeText = when {
             mode == ProtectionMode.STRICT -> "双路拆包 + 填充"
-            mode == ProtectionMode.BALANCED -> "双路智能分流"
+            mode == ProtectionMode.TURBO -> "极速多设备分流"
             DataStore.effectiveDualNetStrategy == DualNet.Strategy.AUTO -> "智能权重"
             else -> "1:1 并发轮询"
         }
@@ -433,9 +431,11 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         dualEngineTickerJob = runOnDefaultDispatcher {
             while (isActive) {
                 val parsed = parseDualNetStatus()
+                val lanInfo = parseLanPeerSummary()
+                val subText = if (lanInfo.isNotEmpty()) "${parsed.summaryLine} · $lanInfo" else parsed.summaryLine
                 onMainDispatcher {
                     if (_binding != null) {
-                        binding.dualEngineSub.text = parsed.summaryLine
+                        binding.dualEngineSub.text = subText
                         showDualEngineShares(
                             flowing = true,
                             wifiShare = parsed.wifiShare,
@@ -466,6 +466,23 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         binding.cellShareValue.text = if (flowing) "$cellPct%" else "—"
         binding.wifiShareDetail.text = wifiDetail
         binding.cellShareDetail.text = cellDetail
+    }
+
+    private fun parseLanPeerSummary(): String {
+        val raw = runCatching {
+            io.nekohasekai.sagernet.dualnet.LanPeerManager.statusFile.readText()
+        }.getOrNull() ?: return ""
+        val map = raw.split("|").mapNotNull {
+            val idx = it.indexOf('=')
+            if (idx > 0) it.substring(0, idx) to it.substring(idx + 1) else null
+        }.toMap()
+        val peers = map["peers"]?.toIntOrNull() ?: 0
+        val sharing = map["sharing"] == "1"
+        val usedMb = map["usedMb"]?.toLongOrNull() ?: 0L
+        return buildList {
+            if (peers > 0) add("局域网设备 $peers 台")
+            if (sharing) add("已共享 ${usedMb}MB")
+        }.joinToString(" · ")
     }
 
     private data class DualEngineUiState(

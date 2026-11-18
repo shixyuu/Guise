@@ -49,6 +49,8 @@ class DualNetworkManager(
     private val sampleKb: Int,
     private val splitAllowed: Boolean,
     private val udpProbeInterval: Int = DualNet.DEFAULT_UDP_PROBE_INTERVAL,
+    private val lanBorrowEnabled: Boolean = false,
+    private val lanShareEnabled: Boolean = false,
 ) : SocketBinder {
 
     companion object {
@@ -71,6 +73,7 @@ class DualNetworkManager(
     private val callbacks = mutableListOf<ConnectivityManager.NetworkCallback>()
     private val samplesSeen = ConcurrentHashMap<String, AtomicLong>()
     private val udpProbeStates = ConcurrentHashMap<String, String>()
+    private var lanPeerManager: LanPeerManager? = null
 
     /** Minimum seconds between active UDP probe rounds handed to libexclavecore (0 = off). */
     val udpProbeIntervalSeconds: Int
@@ -127,16 +130,28 @@ class DualNetworkManager(
                 Log.w(TAG, "dual-network: requestNetwork($label) failed", e)
             }
         }
+        if ((lanBorrowEnabled && splitAllowed) || lanShareEnabled) {
+            lanPeerManager = LanPeerManager(
+                context = SagerNet.application,
+                borrowEnabled = lanBorrowEnabled && splitAllowed,
+                shareEnabled = lanShareEnabled,
+                cellularProvider = { networks[CELLULAR] },
+                onPeersChanged = { recompute() },
+            ).also { it.start() }
+        }
         Log.i(
             TAG, "dual-network: started, split=${if (splitAllowed) "on" else "off (ByeDPI/direct profile)"}, " +
                     "strategy=${if (strategy == DualNet.Strategy.AUTO) "auto" else "1:1"}, " +
                     "single=${if (singleNetwork == DualNet.Single.CELLULAR) CELLULAR else WIFI}" +
-                    (if (sampleBytes > 0) ", sample every ${sampleBytes / 1024} KB sent" else "")
+                    (if (sampleBytes > 0) ", sample every ${sampleBytes / 1024} KB sent" else "") +
+                    (if (lanBorrowEnabled || lanShareEnabled) ", lanPeer(borrow=$lanBorrowEnabled,share=$lanShareEnabled)" else "")
         )
         writeStatus()
     }
 
     fun stop() {
+        lanPeerManager?.stop()
+        lanPeerManager = null
         val cm = SagerNet.connectivity
         callbacks.forEach { runCatching { cm.unregisterNetworkCallback(it) } }
         callbacks.clear()
@@ -145,7 +160,13 @@ class DualNetworkManager(
         Log.i(TAG, "dual-network: stopped")
     }
 
-    private fun available(): List<String> = listOf(WIFI, CELLULAR).filter { networks.containsKey(it) }
+    private fun localAvailable(): List<String> = listOf(WIFI, CELLULAR).filter { networks.containsKey(it) }
+
+    private fun available(): List<String> {
+        val local = localAvailable()
+        val peers = if (networks.containsKey(WIFI)) lanPeerManager?.peerLabels().orEmpty() else emptyList()
+        return local + peers
+    }
 
     @Synchronized
     private fun recompute(forceStatus: Boolean = true) {
@@ -167,16 +188,23 @@ class DualNetworkManager(
 
     override fun bindSocket(fd: Int, destination: String, udp: Boolean, split: Boolean): String {
         val label = if (split && splitAllowed) {
-            if (strategy == DualNet.Strategy.AUTO) {
+            if (udp) {
+                val local = localAvailable()
+                if (strategy == DualNet.Strategy.AUTO) {
+                    val localWeights = weights.filterKeys { !it.startsWith("Peer:") }
+                    picker.pickWeighted(localWeights) ?: picker.pickFixed(local)
+                } else picker.pickFixed(local)
+            } else if (strategy == DualNet.Strategy.AUTO) {
                 if (stats.values.any { it.dead }) recompute(forceStatus = false) // dead-network retry timer
                 picker.pickWeighted(weights)
             } else picker.pickFixed(available())
         } else {
             if (singleNetwork == DualNet.Single.CELLULAR && networks.containsKey(CELLULAR)) CELLULAR else null
         } ?: return ""
-        val network = networks[label] ?: return ""
+        val targetNetwork = if (label.startsWith("Peer:")) networks[WIFI] else networks[label]
+        targetNetwork ?: return ""
         return try {
-            ParcelFileDescriptor.fromFd(fd).use { network.bindSocket(it.fileDescriptor) }
+            ParcelFileDescriptor.fromFd(fd).use { targetNetwork.bindSocket(it.fileDescriptor) }
             if (split) counters.getOrPut(label) { AtomicLong() }.incrementAndGet()
             label
         } catch (e: Exception) {
@@ -185,13 +213,19 @@ class DualNetworkManager(
         }
     }
 
+    override fun peerDialEndpoint(label: String): String {
+        if (!label.startsWith("Peer:")) return ""
+        return lanPeerManager?.peerDialEndpoint(label).orEmpty()
+    }
+
     /**
      * Passive sample from libexclavecore (sampler.go), taken from a live split connection
      * (null sample = connect error/timeout or a stalled connection).
      */
     @Synchronized
     override fun reportSample(network: String, rttMicros: Long, rttVarMicros: Long, loss: Double, failed: Boolean) {
-        if (!networks.containsKey(network)) return
+        val known = networks.containsKey(network) || (network.startsWith("Peer:") && lanPeerManager?.peerDialEndpoint(network)?.isNotEmpty() == true)
+        if (!known) return
         val sample = if (failed) null else DualNet.Sample(
             rttMicros / 1000.0,
             if (rttVarMicros >= 0) rttVarMicros / 1000.0 else null,
@@ -203,7 +237,7 @@ class DualNetworkManager(
         recompute(forceStatus = failed)
     }
 
-    override fun activeNetworks(): String = available().joinToString(",")
+    override fun activeNetworks(): String = localAvailable().joinToString(",")
 
     override fun bindSocketTo(fd: Int, network: String): Boolean {
         val target = networks[network] ?: return false

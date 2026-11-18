@@ -221,6 +221,29 @@
                 app:key="dualNetStatus"
                 app:selectable="false"
                 app:title="@string/dual_net_status" />
+            <SwitchPreference
+                app:icon="@drawable/baseline_wifi_lock_24"
+                app:key="lanPeerBorrowEnabled"
+                app:summary="@string/lan_peer_borrow_sum"
+                app:title="@string/lan_peer_borrow_title" />
+            <SwitchPreference
+                app:icon="@drawable/baseline_wifi_lock_24"
+                app:key="lanPeerShareEnabled"
+                app:summary="@string/lan_peer_share_sum"
+                app:title="@string/lan_peer_share_title" />
+            <EditTextPreference
+                app:defaultValue="0"
+                app:icon="@drawable/baseline_wifi_lock_24"
+                app:key="lanPeerShareLimitMb"
+                app:title="@string/lan_peer_limit_title" />
+            <Preference
+                app:icon="@drawable/baseline_wifi_lock_24"
+                app:key="lanPeerShareUsedBytes"
+                app:title="@string/lan_peer_used_title" />
+            <Preference
+                app:icon="@drawable/baseline_wifi_lock_24"
+                app:key="lanPeerTrusted"
+                app:title="@string/lan_peer_clear_trusted" />
         </PreferenceScreen>
     </PreferenceCategory>
 

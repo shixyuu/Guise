@@ -217,31 +217,54 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var dualNetSampleKb by configurationStore.stringToInt(Key.DUAL_NET_SAMPLE_KB) { DualNet.DEFAULT_SAMPLE_KB }
     var dualNetUdpProbeInterval by configurationStore.stringToInt(Key.DUAL_NET_UDP_PROBE_INTERVAL) { DualNet.DEFAULT_UDP_PROBE_INTERVAL }
 
-    val isProtectionMode: Boolean get() = protectionMode >= ProtectionMode.STANDARD
-    val isSmartSplitMode: Boolean get() = protectionMode == ProtectionMode.SMART_SPLIT
+    var lanPeerBorrowEnabled by configurationStore.boolean(Key.LAN_PEER_BORROW_ENABLED)
+    var lanPeerShareEnabled by configurationStore.boolean(Key.LAN_PEER_SHARE_ENABLED)
+    var lanPeerShareLimitMb by configurationStore.stringToInt(Key.LAN_PEER_SHARE_LIMIT_MB) { 0 }
+    var lanPeerShareUsedBytes by configurationStore.long(Key.LAN_PEER_SHARE_USED_BYTES)
+    var lanPeerTrusted by configurationStore.string(Key.LAN_PEER_TRUSTED)
+    var lanPeerDeviceId by configurationStore.string(Key.LAN_PEER_DEVICE_ID)
+    var lanPeerToken by configurationStore.string(Key.LAN_PEER_TOKEN)
+
+    val effectiveProtectionMode: Int
+        get() = if (protectionMode == 4) ProtectionMode.STRICT else protectionMode
+
+    val isProtectionMode: Boolean get() = effectiveProtectionMode == ProtectionMode.STRICT
+    val isSmartSplitMode: Boolean get() = effectiveProtectionMode == ProtectionMode.SMART_SPLIT
+    val isTurboMode: Boolean get() = effectiveProtectionMode == ProtectionMode.TURBO
+
     val effectiveByedpiEnabled: Boolean
-        get() = when (protectionMode) {
+        get() = when (effectiveProtectionMode) {
             ProtectionMode.MANUAL -> byedpiEnabled
             ProtectionMode.SMART_SPLIT -> true
             else -> false
         }
     val effectiveDualNetEnabled: Boolean
-        get() = when (protectionMode) {
+        get() = when (effectiveProtectionMode) {
             ProtectionMode.MANUAL, ProtectionMode.SMART_SPLIT -> dualNetEnabled
-            ProtectionMode.BALANCED, ProtectionMode.STRICT -> true
+            ProtectionMode.STRICT, ProtectionMode.TURBO -> true
             else -> false
         }
     val effectiveDualNetStrategy: Int
-        get() = when (protectionMode) {
-            ProtectionMode.BALANCED -> DualNet.Strategy.AUTO
+        get() = when (effectiveProtectionMode) {
             ProtectionMode.STRICT -> DualNet.Strategy.FIXED
+            ProtectionMode.TURBO -> DualNet.Strategy.AUTO
             else -> dualNetStrategy
         }
     val effectiveShaperLevel: Int
-        get() = when (protectionMode) {
-            ProtectionMode.BALANCED -> 1
+        get() = when (effectiveProtectionMode) {
             ProtectionMode.STRICT -> 2
             else -> 0
+        }
+    val effectiveLanBorrowEnabled: Boolean
+        get() = when (effectiveProtectionMode) {
+            ProtectionMode.STRICT -> false
+            ProtectionMode.TURBO -> true
+            else -> lanPeerBorrowEnabled
+        }
+    val effectiveLanShareEnabled: Boolean
+        get() = when (effectiveProtectionMode) {
+            ProtectionMode.STRICT -> false
+            else -> lanPeerShareEnabled
         }
     /** comma separated target ids (presets and "custom:<url>") */
     var byedpiProbeTargets by configurationStore.stringNotBlack(Key.BYEDPI_PROBE_TARGETS) { ByeDPIProbeTargets.DEFAULT_SELECTION }

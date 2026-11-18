@@ -407,6 +407,43 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         }
         updateDualNetVisibility(dualNetEnabled.isChecked, DataStore.dualNetStrategy)
         updateDualNetStatus()
+
+        val lanBorrow = findPreference<SwitchPreference>(Key.LAN_PEER_BORROW_ENABLED)
+        val lanShare = findPreference<SwitchPreference>(Key.LAN_PEER_SHARE_ENABLED)
+        val lanLimit = findPreference<EditTextPreference>(Key.LAN_PEER_SHARE_LIMIT_MB)
+        val lanUsed = findPreference<Preference>(Key.LAN_PEER_SHARE_USED_BYTES)
+        val lanTrusted = findPreference<Preference>(Key.LAN_PEER_TRUSTED)
+
+        lanBorrow?.onPreferenceChangeListener = reloadListener
+        lanShare?.onPreferenceChangeListener = reloadListener
+        lanLimit?.apply {
+            setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
+            onPreferenceChangeListener = reloadListener
+            summaryProvider = Preference.SummaryProvider<EditTextPreference> {
+                val v = it.text?.toIntOrNull() ?: 0
+                (if (v <= 0) "0" else "$v MB") + "\n" + getString(R.string.lan_peer_limit_sum)
+            }
+        }
+        fun refreshLanStats() {
+            val usedMb = DataStore.lanPeerShareUsedBytes / (1024L * 1024L)
+            lanUsed?.summary = getString(R.string.lan_peer_used_sum, usedMb)
+            val trustedCount = io.nekohasekai.sagernet.dualnet.LanPeerManager.parseTrusted().size
+            lanTrusted?.summary = getString(R.string.lan_peer_clear_trusted_sum, trustedCount)
+        }
+        refreshLanStats()
+        lanUsed?.setOnPreferenceClickListener {
+            DataStore.lanPeerShareUsedBytes = 0L
+            refreshLanStats()
+            snackbar(R.string.lan_peer_used_reset).show()
+            true
+        }
+        lanTrusted?.setOnPreferenceClickListener {
+            io.nekohasekai.sagernet.dualnet.LanPeerManager.clearTrusted()
+            refreshLanStats()
+            snackbar(R.string.lan_peer_trusted_cleared).show()
+            needReload()
+            true
+        }
     }
 
     private fun setupRouteAdvancedScreen() {
@@ -791,16 +828,17 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         findPreference<EditTextPreference>(Key.EXPERIMENTAL_FLAGS)?.isVisible = DataStore.enableDebug
     }
 
-    private fun updateGuiseScreenSummaries(mode: Int = DataStore.protectionMode) {
-        val isProtectionLocked = mode >= ProtectionMode.STANDARD
+    private fun updateGuiseScreenSummaries(mode: Int = DataStore.effectiveProtectionMode) {
+        val effMode = if (mode == 4) ProtectionMode.STRICT else mode
+        val isProtectionLocked = effMode == ProtectionMode.STRICT
         findPreference<Preference>("screen_byedpi")?.let { pref ->
-            pref.isEnabled = !isProtectionLocked
+            pref.isEnabled = !isProtectionLocked && effMode != ProtectionMode.TURBO
             pref.summary = when {
-                mode == ProtectionMode.SMART_SPLIT -> {
+                effMode == ProtectionMode.SMART_SPLIT -> {
                     val args = DataStore.byedpiArgs.trim().ifEmpty { ByeDPI.DEFAULT_ARGS }
                     "${getString(R.string.protection_takeover_byedpi_smart)} · $args"
                 }
-                isProtectionLocked -> getString(R.string.protection_takeover_byedpi_disabled)
+                isProtectionLocked || effMode == ProtectionMode.TURBO -> getString(R.string.protection_takeover_byedpi_disabled)
                 DataStore.byedpiEnabled -> {
                     val args = DataStore.byedpiArgs.trim().ifEmpty { ByeDPI.DEFAULT_ARGS }
                     "${getString(R.string.settings_status_enabled)} · $args"
@@ -812,6 +850,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             pref.isEnabled = !isProtectionLocked
             pref.summary = when {
                 isProtectionLocked -> getString(R.string.protection_takeover_dualnet)
+                effMode == ProtectionMode.TURBO -> getString(R.string.protection_mode_desc_turbo)
                 DataStore.dualNetEnabled -> {
                     val strategy = if (DataStore.dualNetStrategy == DualNet.Strategy.AUTO) {
                         getString(R.string.dual_net_strategy_auto)

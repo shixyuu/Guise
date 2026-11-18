@@ -54,6 +54,7 @@ jobs:
           git clone https://github.com/exclavenetwork/libexclavecore.git /tmp/libexclavecore
           git -C /tmp/libexclavecore -c user.name="Guise" -c user.email="guise@localhost" am "$GITHUB_WORKSPACE/library/core/patches/libexclavecore-guise-dualnet.patch"
           git -C /tmp/libexclavecore -c user.name="Guise" -c user.email="guise@localhost" am "$GITHUB_WORKSPACE/library/core/patches/libexclavecore-guise-shaper.patch"
+          git -C /tmp/libexclavecore -c user.name="Guise" -c user.email="guise@localhost" am "$GITHUB_WORKSPACE/library/core/patches/libexclavecore-guise-lanpeer.patch"
           cat > library/core/go.work <<'EOF'
           go 1.27
           use (

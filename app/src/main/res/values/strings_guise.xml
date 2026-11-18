@@ -115,15 +115,13 @@ Pool: %2$d · last test %3$s</string>
     <string name="settings_status_disabled">Disabled</string>
     <string name="protection_mode_title">Working &amp; Protection Mode</string>
     <string name="protection_mode_manual">Manual</string>
-    <string name="protection_mode_smart_split">Smart Data-Saver Split</string>
-    <string name="protection_mode_standard">Standard Protection</string>
-    <string name="protection_mode_balanced">Balanced Protection</string>
-    <string name="protection_mode_strict">Strict Protection</string>
-    <string name="protection_mode_desc_manual">User controls ByeDPI and Dual-Network freely</string>
+    <string name="protection_mode_smart_split">Data-Saver</string>
+    <string name="protection_mode_strict">Anti-Surveillance</string>
+    <string name="protection_mode_turbo">Turbo (Multi-Device)</string>
+    <string name="protection_mode_desc_manual">User controls ByeDPI, Dual-Net and LAN sharing</string>
     <string name="protection_mode_desc_smart_split">DPI-only via ByeDPI · IP-blocked via proxy</string>
-    <string name="protection_mode_desc_standard">ByeDPI off · Encrypted proxy + Leak Guard</string>
-    <string name="protection_mode_desc_balanced">ByeDPI off · Weak-TCP Shaper + Auto Dual-Net</string>
-    <string name="protection_mode_desc_strict">ByeDPI off · Full Shaper + 1:1 Dual-Net</string>
+    <string name="protection_mode_desc_strict">Strict anti-tracking · Full shaper + 1:1 dual-net · No LAN</string>
+    <string name="protection_mode_desc_turbo">Auto DualLink + LAN multi-device speed sharing</string>
     <string name="protection_takeover_byedpi_disabled">Force-disabled in Protection mode (encrypted proxy only)</string>
     <string name="protection_takeover_byedpi_smart">Managed by Smart Data-Saver Split</string>
     <string name="protection_takeover_dualnet">Managed by current Protection mode</string>
@@ -177,4 +175,20 @@ Pool: %2$d · last test %3$s</string>
     <string name="home_dual_engine_cell">Cellular</string>
     <string name="home_probe_strategy">Test strategies</string>
     <string name="home_toggle_service">Connect / disconnect</string>
+    <string name="lan_peer_confirm_title">LAN Network Share Request</string>
+    <string name="lan_peer_confirm_message">Allow device \"%1$s\" (%2$s) to borrow this device\'s cellular network for encrypted tunnels?</string>
+    <string name="lan_peer_allow">Allow</string>
+    <string name="lan_peer_deny">Deny</string>
+    <string name="lan_peer_borrow_title">Borrow LAN peer speed</string>
+    <string name="lan_peer_borrow_sum">Discover Guise peers on the same Wi-Fi and split encrypted tunnels across them (auto-enabled in Turbo mode)</string>
+    <string name="lan_peer_share_title">Allow sharing my cellular data</string>
+    <string name="lan_peer_share_sum">Let approved LAN Guise devices route encrypted tunnels through this device\'s cellular network (anti-loop enforced)</string>
+    <string name="lan_peer_limit_title">Shared data quota (MB)</string>
+    <string name="lan_peer_limit_sum">0 = unlimited; cuts off LAN sharing once reached</string>
+    <string name="lan_peer_used_title">Shared data used</string>
+    <string name="lan_peer_used_sum">%1$d MB used (tap to reset)</string>
+    <string name="lan_peer_clear_trusted">Revoke all trusted LAN devices</string>
+    <string name="lan_peer_clear_trusted_sum">%1$d trusted device(s)</string>
+    <string name="lan_peer_trusted_cleared">Trusted LAN devices cleared</string>
+    <string name="lan_peer_used_reset">Shared data counter reset</string>
 </resources>

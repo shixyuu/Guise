@@ -3092,7 +3092,7 @@ fun buildV2RayConfig(
                 port = "3478,5349"
                 outboundTag = TAG_BLOCK
             })
-            if (DataStore.protectionMode == ProtectionMode.STRICT) {
+            if (DataStore.isProtectionMode) {
                 // Block multicast/mDNS/SSDP LAN discovery
                 routing.rules.add(0, RoutingObject.RuleObject().apply {
                     type = "field"
