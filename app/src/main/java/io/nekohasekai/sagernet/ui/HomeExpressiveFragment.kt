@@ -415,8 +415,8 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         dualEngineTickerJob?.cancel()
         val mode = DataStore.effectiveProtectionMode
         val badgeText = when {
-            mode == ProtectionMode.STRICT -> "双路拆包 + 填充"
-            mode == ProtectionMode.TURBO -> "极速多设备分流"
+            mode == ProtectionMode.STRICT -> "协同抗关联 + 填充"
+            mode == ProtectionMode.TURBO -> "协同多路分流"
             DataStore.effectiveDualNetStrategy == DualNet.Strategy.AUTO -> "智能权重"
             else -> "1:1 并发轮询"
         }
@@ -477,10 +477,10 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         binding.cellShareDetail.text = cellDetail
 
         val streams = buildList {
-            add(io.nekohasekai.sagernet.widget.DualMergeFlowView.LinkStream("Wi-Fi", wifiShare, 0))
-            add(io.nekohasekai.sagernet.widget.DualMergeFlowView.LinkStream("5G", cellShare, 1))
+            add(io.nekohasekai.sagernet.widget.CoNetEnergyView.LinkNode("Wi-Fi", wifiShare, 0))
+            add(io.nekohasekai.sagernet.widget.CoNetEnergyView.LinkNode("5G", cellShare, 1))
             peers.forEach { p ->
-                add(io.nekohasekai.sagernet.widget.DualMergeFlowView.LinkStream(p.displayName, p.share, 2))
+                add(io.nekohasekai.sagernet.widget.CoNetEnergyView.LinkNode(p.displayName, p.share, 2))
             }
         }
         binding.dualMergeFlow.updateLinks(flowing, streams)

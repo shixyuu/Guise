@@ -64,7 +64,7 @@
     <string name="byedpi_dns_message">经 ByeDPI 的域名所用的 DoH 服务器，每行一个。</string>
     <string name="byedpi_dns_via_byedpi">ByeDPI 专用 DNS 经过 ByeDPI</string>
     <string name="byedpi_dns_via_byedpi_sum">这些 DoH 查询也走 ByeDPI</string>
-    <string name="dual_net_settings">双网络（WiFi + 移动数据）</string>
+    <string name="dual_net_settings">协同网络（Wi-Fi + 蜂窝 + 多设备）</string>
     <string name="dual_net_enable">同时使用 WiFi 和移动数据</string>
     <string name="dual_net_enable_sum">代理连接分到两个网络，会消耗移动流量</string>
     <string name="dual_net_strategy">分流方式</string>
@@ -165,7 +165,7 @@
     <string name="nodes_add_byedpi">ByeDPI（无服务器）</string>
     <string name="rules_summary_count">已启用 %1$d 条规则</string>
     <string name="rules_add_title">新建路由规则</string>
-    <string name="home_dual_engine_title">双擎网络</string>
+    <string name="home_dual_engine_title">协同网络</string>
     <string name="home_dual_engine_cell">蜂窝</string>
     <string name="home_probe_strategy">测策略</string>
     <string name="home_toggle_service">连接 / 断开</string>

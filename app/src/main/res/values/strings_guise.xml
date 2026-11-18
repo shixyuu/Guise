@@ -65,7 +65,7 @@
     <string name="byedpi_dns_message">DoH servers for names sent through ByeDPI, one per line.</string>
     <string name="byedpi_dns_via_byedpi">Send ByeDPI DNS through ByeDPI</string>
     <string name="byedpi_dns_via_byedpi_sum">Send those DoH queries through ByeDPI</string>
-    <string name="dual_net_settings">Dual network (Wi-Fi + mobile data)</string>
+    <string name="dual_net_settings">Co-op Network (Wi-Fi + Mobile + LAN Peers)</string>
     <string name="dual_net_enable">Use Wi-Fi and mobile data together</string>
     <string name="dual_net_enable_sum">Split proxy connections over both. Uses mobile data.</string>
     <string name="dual_net_strategy">Balancing</string>
@@ -170,7 +170,7 @@ Pool: %2$d · last test %3$s</string>
     <string name="home_hero_connecting" translatable="false">CONNECTING</string>
     <string name="home_hero_disconnected" translatable="false">OFFLINE</string>
     <string name="home_status_line" translatable="false">%1$s · %2$s</string>
-    <string name="home_dual_engine_title">Dual network</string>
+    <string name="home_dual_engine_title">Co-op Network</string>
     <string name="home_dual_engine_wifi" translatable="false">Wi-Fi</string>
     <string name="home_dual_engine_cell">Cellular</string>
     <string name="home_probe_strategy">Test strategies</string>

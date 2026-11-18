@@ -373,11 +373,11 @@
                             tools:text="智能权重" />
                     </LinearLayout>
 
-                    <io.nekohasekai.sagernet.widget.DualMergeFlowView
+                    <io.nekohasekai.sagernet.widget.CoNetEnergyView
                         android:id="@+id/dual_merge_flow"
                         android:layout_width="match_parent"
-                        android:layout_height="48dp"
-                        android:layout_marginTop="10dp" />
+                        android:layout_height="144dp"
+                        android:layout_marginTop="8dp" />
 
                     <LinearLayout
                         android:layout_width="match_parent"
