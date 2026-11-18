@@ -352,6 +352,16 @@ UI texts were cut to one line in guise.9; the details live here.
   sends up to 1.25× the set rate (1/ackRate, ackRate floored at 0.8); with this on it sends exactly
   the set rate.
 
+## Home screen (Material 3)
+
+The Expressive home screen (`fragment_home_expressive.xml`, `HomeExpressiveFragment`) uses only
+Material 3 components and theme color roles (dynamic color on Android 12+): filled / outlined /
+elevated cards, a large FAB for connect, assist chips, M3 linear progress indicators (wavy for the
+scan progress) and the M3 navigation bar. The hero card is `colorPrimaryContainer` while connected
+and `colorSurfaceContainerHighest` while idle. The hero status text uses the Michroma font
+(`res/font/michroma.ttf`, Copyright 2011 The Michroma Project Authors, SIL Open Font License 1.1,
+full text in `licenses/Michroma-OFL.txt`); everything else uses the M3 type scale.
+
 ## Third-party code reused
 - hufrea/byedpi (MIT) — submodule `library/byedpi`, notice added to `assets/license/notices.txt`.
 - romanvht/ByeByeDPI (GPL-3.0, compatible): `shellSplit` (utility/ArgumentsUtils.kt, itself from a public gist),

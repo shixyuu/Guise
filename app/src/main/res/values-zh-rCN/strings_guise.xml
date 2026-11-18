@@ -167,4 +167,8 @@
     <string name="nodes_add_byedpi">ByeDPI（无服务器）</string>
     <string name="rules_summary_count">已启用 %1$d 条规则</string>
     <string name="rules_add_title">新建路由规则</string>
+    <string name="home_dual_engine_title">双擎网络</string>
+    <string name="home_dual_engine_cell">蜂窝</string>
+    <string name="home_probe_strategy">测策略</string>
+    <string name="home_toggle_service">连接 / 断开</string>
 </resources>

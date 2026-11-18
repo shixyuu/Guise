@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Guise home screen: Material 3 (Expressive) layout. All colors come from theme color roles so
+     dynamic color (Material You) keeps working; only the hero status uses the Michroma font. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -8,182 +10,186 @@
     android:background="?attr/colorSurface"
     android:orientation="vertical">
 
-    <!-- Top App Bar (Surfboard M3 Expressive style, tonal surface gray step) -->
+    <!-- M3 small top app bar: title + protection-mode chip -->
     <LinearLayout
         android:id="@+id/top_app_bar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="64dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingHorizontal="20dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="10dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:fontFamily="sans-serif-medium"
-            android:letterSpacing="-0.02"
             android:text="@string/app_name"
-            android:textColor="?attr/colorOnSurface"
-            android:textSize="22sp"
-            android:textStyle="bold" />
+            android:textAppearance="?attr/textAppearanceTitleLarge"
+            android:textColor="?attr/colorOnSurface" />
 
-        <com.google.android.material.card.MaterialCardView
+        <com.google.android.material.chip.Chip
             android:id="@+id/mode_pill"
+            style="@style/Widget.Material3.Chip.Assist"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:clickable="true"
-            android:focusable="true"
-            app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
-            app:cardCornerRadius="999dp"
-            app:cardElevation="0dp"
-            app:strokeWidth="0dp">
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="7dp">
-
-                <View
-                    android:layout_width="8dp"
-                    android:layout_height="8dp"
-                    android:background="@drawable/bg_dot_circle" />
-
-                <TextView
-                    android:id="@+id/mode_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="7dp"
-                    android:fontFamily="sans-serif-medium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textSize="12sp"
-                    tools:text="智能省流分流" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+            android:textColor="?attr/colorOnSecondaryContainer"
+            app:chipBackgroundColor="?attr/colorSecondaryContainer"
+            app:chipIcon="@drawable/ic_home_tune"
+            app:chipIconTint="?attr/colorOnSecondaryContainer"
+            app:chipIconVisible="true"
+            app:chipStrokeWidth="0dp"
+            app:closeIcon="@drawable/ic_home_arrow_drop_down"
+            app:closeIconTint="?attr/colorOnSecondaryContainer"
+            app:closeIconVisible="true"
+            tools:text="智能省流分流" />
     </LinearLayout>
 
-    <!-- Main Scrollable Dashboard Content -->
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
-        android:paddingHorizontal="16dp"
+        android:paddingStart="16dp"
         android:paddingTop="4dp"
-        android:paddingBottom="24dp">
+        android:paddingEnd="16dp"
+        android:paddingBottom="16dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- 1. Surfboard-style Hero Status Card -->
+            <!-- 1. Hero: filled card, primaryContainer when connected / surfaceContainerHighest when idle -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/hero_card"
+                style="@style/Widget.Material3.CardView.Filled"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:clickable="true"
                 android:focusable="true"
-                app:cardBackgroundColor="?attr/colorSurfaceContainer"
-                app:cardCornerRadius="28dp"
-                app:cardElevation="0dp"
-                app:strokeWidth="0dp">
+                app:cardBackgroundColor="?attr/colorSurfaceContainerHighest"
+                app:shapeAppearance="?attr/shapeAppearanceCornerExtraLarge">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:padding="22dp">
+                    android:orientation="vertical"
+                    android:paddingStart="20dp"
+                    android:paddingTop="18dp"
+                    android:paddingEnd="20dp"
+                    android:paddingBottom="18dp">
 
                     <LinearLayout
-                        android:layout_width="0dp"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginEnd="12dp"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:id="@+id/hero_status_icon"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_marginEnd="8dp"
+                            android:importantForAccessibility="no"
+                            app:srcCompat="@drawable/ic_home_shield"
+                            app:tint="?attr/colorOnSurfaceVariant" />
 
                         <TextView
                             android:id="@+id/status_subtitle_top"
-                            android:layout_width="wrap_content"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:alpha="0.75"
-                            android:fontFamily="sans-serif-medium"
+                            android:layout_weight="1"
                             android:text="@string/home_subtitle_ready"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="12sp" />
-
-                        <TextView
-                            android:id="@+id/status_display"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:fontFamily="sans-serif-medium"
-                            android:letterSpacing="-0.02"
-                            android:maxLines="1"
-                            android:text="@string/home_status_disconnected"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="32sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/hero_mode_subtitle"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:alpha="0.80"
-                            android:fontFamily="sans-serif-medium"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="12sp"
-                            tools:text="智能省流分流" />
+                            android:textAppearance="?attr/textAppearanceLabelLarge"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
                     </LinearLayout>
 
-                    <FrameLayout
-                        android:id="@+id/hero_container"
-                        android:layout_width="80dp"
-                        android:layout_height="80dp">
+                    <TextView
+                        android:id="@+id/status_display"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="4dp"
+                        android:fontFamily="@font/michroma"
+                        android:gravity="center_vertical"
+                        android:includeFontPadding="false"
+                        android:letterSpacing="0.02"
+                        android:maxLines="1"
+                        android:text="@string/home_hero_disconnected"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="32sp"
+                        app:autoSizeMaxTextSize="32sp"
+                        app:autoSizeMinTextSize="18sp"
+                        app:autoSizeStepGranularity="1sp"
+                        app:autoSizeTextType="uniform" />
 
-                        <ImageView
-                            android:id="@+id/hero_orbit"
-                            android:layout_width="80dp"
-                            android:layout_height="80dp"
-                            android:layout_gravity="center"
-                            android:alpha="0.25"
-                            android:contentDescription="@null"
-                            app:srcCompat="@drawable/ic_expressive_orbit"
-                            app:tint="?attr/colorPrimary" />
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:gravity="bottom"
+                        android:orientation="horizontal">
 
-                        <com.google.android.material.card.MaterialCardView
-                            android:id="@+id/hero_button"
-                            android:layout_width="64dp"
-                            android:layout_height="64dp"
-                            android:layout_gravity="center"
-                            android:clickable="true"
-                            android:focusable="true"
-                            app:cardBackgroundColor="?attr/colorSurfaceContainerHighest"
-                            app:cardCornerRadius="32dp"
-                            app:cardElevation="0dp"
-                            app:strokeWidth="0dp">
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginEnd="12dp"
+                            android:layout_marginBottom="4dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
 
-                            <ImageView
-                                android:id="@+id/hero_icon"
-                                android:layout_width="28dp"
-                                android:layout_height="28dp"
-                                android:layout_gravity="center"
-                                android:contentDescription="@null"
-                                app:srcCompat="@drawable/ic_expressive_power"
-                                app:tint="?attr/colorPrimary" />
-                        </com.google.android.material.card.MaterialCardView>
-                    </FrameLayout>
+                            <TextView
+                                android:id="@+id/hero_mode_subtitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:drawablePadding="6dp"
+                                android:gravity="center_vertical"
+                                android:textAppearance="?attr/textAppearanceTitleMedium"
+                                android:textColor="?attr/colorOnSurface"
+                                app:drawableStartCompat="@drawable/ic_home_tune"
+                                app:drawableTint="?attr/colorOnSurface"
+                                tools:text="智能省流分流" />
+
+                            <TextView
+                                android:id="@+id/hero_mode_desc"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:textAppearance="?attr/textAppearanceBodyMedium"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                tools:text="DPI 封锁走 ByeDPI\nIP 封锁走加密代理" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical">
+
+                            <!-- M3 Expressive large FAB (96dp, extra-large corner) -->
+                            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                                android:id="@+id/hero_button"
+                                style="@style/Widget.Material3.FloatingActionButton.Large.Primary"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:contentDescription="@string/home_toggle_service"
+                                app:maxImageSize="36dp"
+                                app:srcCompat="@drawable/ic_expressive_power" />
+
+                            <TextView
+                                android:id="@+id/hero_button_label"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:text="@string/home_tap_start"
+                                android:textAppearance="?attr/textAppearanceLabelMedium"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
+                        </LinearLayout>
+                    </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 2. Two-Column 24dp Tonal Info Cards -->
+            <!-- 2. Current node + exit IP: two filled cards -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -191,19 +197,16 @@
                 android:baselineAligned="false"
                 android:orientation="horizontal">
 
-                <!-- Left Card: Current Node & Smart Split Badge -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/node_info_card"
+                    style="@style/Widget.Material3.CardView.Filled"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
                     android:layout_marginEnd="6dp"
                     android:layout_weight="1"
                     android:clickable="true"
                     android:focusable="true"
-                    app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                    app:cardCornerRadius="24dp"
-                    app:cardElevation="0dp"
-                    app:strokeWidth="0dp">
+                    app:shapeAppearance="?attr/shapeAppearanceCornerLarge">
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -214,73 +217,60 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:fontFamily="sans-serif-medium"
                             android:text="@string/home_current_node"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="11sp" />
+                            android:textAppearance="?attr/textAppearanceLabelMedium"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
 
                         <TextView
                             android:id="@+id/pill_proxy_name"
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="5dp"
+                            android:layout_marginTop="8dp"
                             android:ellipsize="end"
-                            android:fontFamily="sans-serif-medium"
                             android:maxLines="1"
+                            android:textAppearance="?attr/textAppearanceTitleMedium"
                             android:textColor="?attr/colorOnSurface"
-                            android:textSize="13sp"
-                            android:textStyle="bold"
                             tools:text="Tokyo VLESS-Reality" />
-
-                        <LinearLayout
-                            android:id="@+id/smart_split_row"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
-                            android:orientation="horizontal"
-                            android:visibility="gone"
-                            tools:visibility="visible">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:background="@drawable/bg_pill_secondary"
-                                android:fontFamily="sans-serif-medium"
-                                android:paddingHorizontal="8dp"
-                                android:paddingVertical="2dp"
-                                android:text="@string/home_smart_split_badge"
-                                android:textColor="?attr/colorOnSecondaryContainer"
-                                android:textSize="10sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
 
                         <TextView
                             android:id="@+id/node_meta_text"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
-                            android:ellipsize="end"
-                            android:maxLines="1"
+                            android:layout_marginTop="4dp"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
                             android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="11sp"
-                            android:visibility="gone"
                             tools:text="VLESS · 42 ms" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/smart_split_row"
+                            style="@style/Widget.Material3.Chip.Assist"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:clickable="false"
+                            android:focusable="false"
+                            android:text="@string/home_smart_split_badge"
+                            android:textColor="?attr/colorOnSecondaryContainer"
+                            android:visibility="gone"
+                            app:chipBackgroundColor="?attr/colorSecondaryContainer"
+                            app:chipIcon="@drawable/ic_home_check"
+                            app:chipIconTint="?attr/colorOnSecondaryContainer"
+                            app:chipIconVisible="true"
+                            app:chipStrokeWidth="0dp"
+                            tools:visibility="visible" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- Right Card: Exit IP & Country (supports Dual IP for ByeDPI + Proxy) -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/exit_ip_card"
+                    style="@style/Widget.Material3.CardView.Filled"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1"
                     android:clickable="true"
                     android:focusable="true"
-                    app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                    app:cardCornerRadius="24dp"
-                    app:cardElevation="0dp"
-                    app:strokeWidth="0dp">
+                    app:shapeAppearance="?attr/shapeAppearanceCornerLarge">
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -292,50 +282,44 @@
                             android:id="@+id/exit_card_title"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:fontFamily="sans-serif-medium"
                             android:text="@string/home_exit_ip_label"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="11sp" />
+                            android:textAppearance="?attr/textAppearanceLabelMedium"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
 
                         <TextView
                             android:id="@+id/exit_country_text"
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="5dp"
+                            android:layout_marginTop="8dp"
                             android:ellipsize="end"
-                            android:fontFamily="sans-serif-medium"
-                            android:maxLines="1"
+                            android:maxLines="2"
                             android:text="@string/home_exit_not_connected"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
+                            android:textAppearance="?attr/textAppearanceTitleMedium"
+                            android:textColor="?attr/colorOnSurface" />
 
                         <TextView
                             android:id="@+id/exit_ip_text"
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="5dp"
+                            android:layout_marginTop="4dp"
                             android:ellipsize="end"
-                            android:fontFamily="monospace"
-                            android:maxLines="1"
+                            android:maxLines="2"
                             android:text="@string/home_exit_tap_to_check"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="11sp" />
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
 
-            <!-- 3. Hybrid-Car Style Dual-Engine Network Flow Card (shown when Dual-Net is active) -->
+            <!-- 3. Dual network (shown when dual-net is enabled): outlined card + two M3 progress bars -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/dual_engine_card"
+                style="@style/Widget.Material3.CardView.Outlined"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:visibility="gone"
-                app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                app:cardCornerRadius="24dp"
-                app:cardElevation="0dp"
-                app:strokeWidth="0dp"
+                app:shapeAppearance="?attr/shapeAppearanceCornerLarge"
                 tools:visibility="visible">
 
                 <LinearLayout
@@ -353,60 +337,193 @@
                         <LinearLayout
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
+                            android:layout_marginEnd="8dp"
                             android:layout_weight="1"
                             android:orientation="vertical">
 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:fontFamily="sans-serif-medium"
-                                android:text="双擎网络动力流"
-                                android:textColor="?attr/colorOnSurface"
-                                android:textSize="14sp"
-                                android:textStyle="bold" />
+                                android:text="@string/home_dual_engine_title"
+                                android:textAppearance="?attr/textAppearanceTitleMedium"
+                                android:textColor="?attr/colorOnSurface" />
 
                             <TextView
                                 android:id="@+id/dual_engine_sub"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="2dp"
-                                android:text="Wi-Fi + 蜂窝数据实时协同负载"
+                                android:ellipsize="end"
+                                android:maxLines="2"
+                                android:textAppearance="?attr/textAppearanceBodySmall"
                                 android:textColor="?attr/colorOnSurfaceVariant"
-                                android:textSize="11sp" />
+                                tools:text="Wi-Fi + 蜂窝数据实时协同负载" />
                         </LinearLayout>
 
-                        <TextView
+                        <com.google.android.material.chip.Chip
                             android:id="@+id/dual_engine_badge"
+                            style="@style/Widget.Material3.Chip.Assist"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:background="@drawable/bg_pill_secondary"
-                            android:fontFamily="sans-serif-medium"
-                            android:paddingHorizontal="10dp"
-                            android:paddingVertical="4dp"
-                            android:text="智能权重"
-                            android:textColor="?attr/colorOnSecondaryContainer"
-                            android:textSize="10sp"
-                            android:textStyle="bold" />
+                            android:clickable="false"
+                            android:focusable="false"
+                            app:chipIcon="@drawable/ic_home_balance"
+                            app:chipIconTint="?attr/colorPrimary"
+                            app:chipIconVisible="true"
+                            tools:text="智能权重" />
                     </LinearLayout>
 
-                    <io.nekohasekai.sagernet.widget.DualEngineFlowView
-                        android:id="@+id/dual_engine_flow_view"
+                    <LinearLayout
                         android:layout_width="match_parent"
-                        android:layout_height="96dp"
-                        android:layout_marginTop="10dp" />
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:baselineAligned="false"
+                        android:orientation="horizontal">
+
+                        <!-- Wi-Fi share -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginEnd="8dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <ImageView
+                                    android:layout_width="20dp"
+                                    android:layout_height="20dp"
+                                    android:importantForAccessibility="no"
+                                    app:srcCompat="@drawable/ic_home_wifi"
+                                    app:tint="?attr/colorPrimary" />
+
+                                <TextView
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="6dp"
+                                    android:layout_weight="1"
+                                    android:text="@string/home_dual_engine_wifi"
+                                    android:textAppearance="?attr/textAppearanceTitleSmall"
+                                    android:textColor="?attr/colorOnSurface" />
+
+                                <TextView
+                                    android:id="@+id/wifi_share_value"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="—"
+                                    android:textAppearance="?attr/textAppearanceTitleSmall"
+                                    android:textColor="?attr/colorOnSurface"
+                                    tools:ignore="HardcodedText"
+                                    tools:text="62%" />
+                            </LinearLayout>
+
+                            <com.google.android.material.progressindicator.LinearProgressIndicator
+                                android:id="@+id/wifi_share_progress"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:max="100"
+                                app:indicatorColor="?attr/colorPrimary"
+                                app:indicatorTrackGapSize="4dp"
+                                app:trackColor="?attr/colorPrimaryContainer"
+                                app:trackCornerRadius="2dp"
+                                app:trackStopIndicatorSize="4dp"
+                                app:trackThickness="4dp"
+                                tools:progress="62" />
+
+                            <TextView
+                                android:id="@+id/wifi_share_detail"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:textAppearance="?attr/textAppearanceBodySmall"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                tools:text="38ms · 6连接" />
+                        </LinearLayout>
+
+                        <!-- Cellular share -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <ImageView
+                                    android:layout_width="20dp"
+                                    android:layout_height="20dp"
+                                    android:importantForAccessibility="no"
+                                    app:srcCompat="@drawable/ic_home_cellular"
+                                    app:tint="?attr/colorTertiary" />
+
+                                <TextView
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="6dp"
+                                    android:layout_weight="1"
+                                    android:text="@string/home_dual_engine_cell"
+                                    android:textAppearance="?attr/textAppearanceTitleSmall"
+                                    android:textColor="?attr/colorOnSurface" />
+
+                                <TextView
+                                    android:id="@+id/cell_share_value"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="—"
+                                    android:textAppearance="?attr/textAppearanceTitleSmall"
+                                    android:textColor="?attr/colorOnSurface"
+                                    tools:ignore="HardcodedText"
+                                    tools:text="38%" />
+                            </LinearLayout>
+
+                            <com.google.android.material.progressindicator.LinearProgressIndicator
+                                android:id="@+id/cell_share_progress"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:max="100"
+                                app:indicatorColor="?attr/colorTertiary"
+                                app:indicatorTrackGapSize="4dp"
+                                app:trackColor="?attr/colorTertiaryContainer"
+                                app:trackCornerRadius="2dp"
+                                app:trackStopIndicatorSize="4dp"
+                                app:trackThickness="4dp"
+                                tools:progress="38" />
+
+                            <TextView
+                                android:id="@+id/cell_share_detail"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:textAppearance="?attr/textAppearanceBodySmall"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                tools:text="71ms · 4连接" />
+                        </LinearLayout>
+                    </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 4A. CDN / DPI Smart Scan & Learning Progress Card (SMART_SPLIT or MANUAL) -->
+            <!-- 4A. CDN / DPI smart scan (SMART_SPLIT or MANUAL): elevated card -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/smart_scan_card"
+                style="@style/Widget.Material3.CardView.Elevated"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="1dp"
                 android:layout_marginTop="12dp"
-                app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                app:cardCornerRadius="24dp"
-                app:cardElevation="0dp"
-                app:strokeWidth="0dp">
+                android:layout_marginEnd="1dp"
+                android:layout_marginBottom="2dp"
+                app:shapeAppearance="?attr/shapeAppearanceCornerLarge">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -418,63 +535,37 @@
                         android:id="@+id/learning_header_row"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:clickable="true"
-                        android:focusable="true"
+                        android:background="?attr/selectableItemBackground"
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
 
-                        <LinearLayout
+                        <TextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
+                            android:layout_marginEnd="8dp"
                             android:layout_weight="1"
-                            android:orientation="vertical">
+                            android:text="@string/home_cdn_scan_title"
+                            android:textAppearance="?attr/textAppearanceTitleMedium"
+                            android:textColor="?attr/colorOnSurface" />
 
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="sans-serif-medium"
-                                android:text="@string/home_cdn_scan_title"
-                                android:textColor="?attr/colorOnSurface"
-                                android:textSize="14sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:id="@+id/learning_status_text"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="@string/home_learning_on_sub"
-                                android:textColor="?attr/colorOnSurfaceVariant"
-                                android:textSize="11sp" />
-                        </LinearLayout>
-
-                        <com.google.android.material.card.MaterialCardView
+                        <com.google.android.material.chip.Chip
                             android:id="@+id/learning_count_chip"
+                            style="@style/Widget.Material3.Chip.Assist"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:clickable="true"
-                            android:focusable="true"
-                            app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
-                            app:cardCornerRadius="999dp"
-                            app:cardElevation="0dp"
-                            app:strokeWidth="0dp">
-
-                            <TextView
-                                android:id="@+id/learning_count_text"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="sans-serif-medium"
-                                android:paddingHorizontal="10dp"
-                                android:paddingVertical="4dp"
-                                android:textColor="?attr/colorOnSurface"
-                                android:textSize="10sp"
-                                android:textStyle="bold"
-                                tools:text="已知 12 · 拉黑 1" />
-                        </com.google.android.material.card.MaterialCardView>
+                            tools:text="已知 12 · 拉黑 1" />
                     </LinearLayout>
 
-                    <!-- Learning & Scan Progress Bar + Ratio Caption -->
+                    <TextView
+                        android:id="@+id/learning_status_text"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="2"
+                        android:text="@string/home_learning_on_sub"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+
                     <LinearLayout
                         android:id="@+id/learning_progress_container"
                         android:layout_width="match_parent"
@@ -482,93 +573,85 @@
                         android:layout_marginTop="12dp"
                         android:orientation="vertical">
 
+                        <!-- M3 Expressive wavy linear progress -->
                         <com.google.android.material.progressindicator.LinearProgressIndicator
                             android:id="@+id/learning_split_progress"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:max="100"
-                            android:progress="0"
                             app:indicatorColor="?attr/colorPrimary"
-                            app:trackColor="?attr/colorSurfaceContainerHighest"
-                            app:trackCornerRadius="6dp"
-                            app:trackThickness="6dp" />
+                            app:indicatorTrackGapSize="4dp"
+                            app:trackColor="?attr/colorSecondaryContainer"
+                            app:trackCornerRadius="2dp"
+                            app:trackStopIndicatorSize="4dp"
+                            app:trackThickness="4dp"
+                            app:waveAmplitude="3dp"
+                            app:wavelengthDeterminate="20dp"
+                            tools:progress="85" />
 
                         <TextView
                             android:id="@+id/learning_progress_caption"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
-                            android:fontFamily="sans-serif-medium"
+                            android:layout_marginTop="8dp"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
                             android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="11sp"
-                            tools:text="✓ ByeDPI 免流直连 12 个域名 (85%) · 🛡️ 代理兜底 2 个" />
+                            tools:text="ByeDPI 直连 12 个域名 (85%) · 代理兜底 2 个" />
                     </LinearLayout>
 
-                    <!-- Learned Domain Chips Preview (Horizontal Scrollable Pills) -->
                     <HorizontalScrollView
                         android:id="@+id/learning_domains_scroll"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:scrollbars="none">
+                        android:layout_marginTop="6dp"
+                        android:scrollbars="none"
+                        android:visibility="gone">
 
                         <LinearLayout
                             android:id="@+id/learning_domains_row"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
                             android:orientation="horizontal" />
                     </HorizontalScrollView>
 
-                    <!-- Action Buttons Row: Smart Scan + Strategy Test -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:gravity="center_vertical"
+                        android:layout_marginTop="10dp"
                         android:orientation="horizontal">
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_smart_scan"
-                            style="@style/Widget.Material3.Button.TonalButton"
+                            style="@style/Widget.Material3.Button.Icon"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
+                            android:layout_marginEnd="8dp"
                             android:layout_weight="1"
+                            android:ellipsize="end"
+                            android:maxLines="1"
                             android:text="@string/home_smart_scan"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="12sp"
-                            android:textStyle="bold"
-                            app:backgroundTint="?attr/colorSurfaceContainerHigh"
-                            app:cornerRadius="999dp" />
+                            app:icon="@drawable/ic_baseline_manage_search_24" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_probe_strategy"
-                            style="@style/Widget.Material3.Button.TonalButton"
+                            style="@style/Widget.Material3.Button.TonalButton.Icon"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:minWidth="0dp"
-                            android:paddingHorizontal="14dp"
-                            android:text="测策略"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="12sp"
-                            app:backgroundTint="?attr/colorSurfaceContainerHigh"
-                            app:cornerRadius="999dp" />
+                            android:text="@string/home_probe_strategy"
+                            app:icon="@drawable/ic_baseline_speed_24" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 4B. Full Traffic Encryption Card (STANDARD / BALANCED / STRICT) -->
+            <!-- 4B. Full traffic encryption (STANDARD / BALANCED / STRICT): filled card -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/protection_info_card"
+                style="@style/Widget.Material3.CardView.Filled"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:visibility="gone"
-                app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                app:cardCornerRadius="24dp"
-                app:cardElevation="0dp"
-                app:strokeWidth="0dp"
+                app:shapeAppearance="?attr/shapeAppearanceCornerLarge"
                 tools:visibility="visible">
 
                 <LinearLayout
@@ -577,6 +660,14 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:padding="16dp">
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_marginEnd="12dp"
+                        android:importantForAccessibility="no"
+                        app:srcCompat="@drawable/ic_home_shield"
+                        app:tint="?attr/colorPrimary" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -587,41 +678,30 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:fontFamily="sans-serif-medium"
                             android:text="@string/home_full_protection_title"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="14sp"
-                            android:textStyle="bold" />
+                            android:textAppearance="?attr/textAppearanceTitleMedium"
+                            android:textColor="?attr/colorOnSurface" />
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
                             android:text="@string/home_full_protection_sub"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="11sp" />
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
                     </LinearLayout>
 
-                    <com.google.android.material.card.MaterialCardView
+                    <com.google.android.material.chip.Chip
+                        style="@style/Widget.Material3.Chip.Assist"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
-                        app:cardCornerRadius="999dp"
-                        app:cardElevation="0dp"
-                        app:strokeWidth="0dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:fontFamily="sans-serif-medium"
-                            android:paddingHorizontal="10dp"
-                            android:paddingVertical="4dp"
-                            android:text="@string/home_full_protection_badge"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="10sp"
-                            android:textStyle="bold" />
-                    </com.google.android.material.card.MaterialCardView>
+                        android:clickable="false"
+                        android:focusable="false"
+                        android:text="@string/home_full_protection_badge"
+                        android:textColor="?attr/colorOnSecondaryContainer"
+                        app:chipBackgroundColor="?attr/colorSecondaryContainer"
+                        app:chipStrokeWidth="0dp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

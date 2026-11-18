@@ -168,4 +168,13 @@ Pool: %2$d · last test %3$s</string>
     <string name="nodes_add_byedpi">ByeDPI (no server)</string>
     <string name="rules_summary_count">%1$d active rules</string>
     <string name="rules_add_title">New routing rule</string>
+    <string name="home_hero_connected" translatable="false">CONNECTED</string>
+    <string name="home_hero_connecting" translatable="false">CONNECTING</string>
+    <string name="home_hero_disconnected" translatable="false">OFFLINE</string>
+    <string name="home_status_line" translatable="false">%1$s · %2$s</string>
+    <string name="home_dual_engine_title">Dual network</string>
+    <string name="home_dual_engine_wifi" translatable="false">Wi-Fi</string>
+    <string name="home_dual_engine_cell">Cellular</string>
+    <string name="home_probe_strategy">Test strategies</string>
+    <string name="home_toggle_service">Connect / disconnect</string>
 </resources>

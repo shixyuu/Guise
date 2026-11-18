@@ -19,25 +19,23 @@
 
 package io.nekohasekai.sagernet.ui
 
-import android.animation.ObjectAnimator
-import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.view.animation.LinearInterpolator
 import android.view.animation.OvershootInterpolator
 import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipDrawable
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.Key
@@ -80,7 +78,6 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
     private var _binding: FragmentHomeExpressiveBinding? = null
     private val binding get() = _binding!!
 
-    private var orbitAnimator: ObjectAnimator? = null
     private var exitIpJob: Job? = null
     private var scanJob: Job? = null
     private var dualEngineTickerJob: Job? = null
@@ -122,6 +119,9 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         binding.heroCard.setOnClickListener(toggleClick)
 
         binding.modePill.setOnClickListener {
+            showProtectionModeDialog()
+        }
+        binding.modePill.setOnCloseIconClickListener {
             showProtectionModeDialog()
         }
 
@@ -187,77 +187,64 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         val connecting = state == BaseService.State.Connecting
         val active = connected || connecting
 
+        // "VPN 运行中 · 已连接" / "准备就绪 · 未连接" / "正在连接……"
         binding.statusSubtitleTop.text = when {
-            connected -> getString(R.string.home_subtitle_running)
+            connected -> getString(
+                R.string.home_status_line,
+                getString(R.string.home_subtitle_running),
+                getString(R.string.home_status_connected),
+            )
             connecting -> getString(R.string.connecting)
-            else -> getString(R.string.home_subtitle_ready)
+            else -> getString(
+                R.string.home_status_line,
+                getString(R.string.home_subtitle_ready),
+                getString(R.string.home_status_disconnected),
+            )
         }
 
-        binding.statusDisplay.text = when {
-            connected -> getString(R.string.home_status_connected)
-            connecting -> getString(R.string.connecting)
-            else -> getString(R.string.home_status_disconnected)
-        }
+        // Hero status in Michroma (Latin only, so it uses dedicated English display strings)
+        binding.statusDisplay.text = getString(
+            when {
+                connected -> R.string.home_hero_connected
+                connecting -> R.string.home_hero_connecting
+                else -> R.string.home_hero_disconnected
+            }
+        )
 
-        // Subtle gray tonal step on Hero card (no harsh color inversion)
-        val heroBg = MaterialColors.getColor(
-            ctx,
-            if (active) com.google.android.material.R.attr.colorSurfaceContainerHigh
-            else com.google.android.material.R.attr.colorSurfaceContainer,
-            0,
+        // M3 color roles: primaryContainer hero when active, surfaceContainerHighest when idle
+        fun attrColor(attr: Int) = MaterialColors.getColor(ctx, attr, 0)
+        val heroBg = attrColor(
+            if (active) com.google.android.material.R.attr.colorPrimaryContainer
+            else com.google.android.material.R.attr.colorSurfaceContainerHighest
         )
-        val heroFg = MaterialColors.getColor(
-            ctx,
-            com.google.android.material.R.attr.colorOnSurface,
-            0,
+        val heroFg = attrColor(
+            if (active) com.google.android.material.R.attr.colorOnPrimaryContainer
+            else com.google.android.material.R.attr.colorOnSurface
         )
-        val heroSubFg = MaterialColors.getColor(
-            ctx,
-            com.google.android.material.R.attr.colorOnSurfaceVariant,
-            0,
-        )
-        val primaryColor = MaterialColors.getColor(
-            ctx,
-            androidx.appcompat.R.attr.colorPrimary,
-            0,
+        val heroSubFg = attrColor(
+            if (active) com.google.android.material.R.attr.colorOnPrimaryContainer
+            else com.google.android.material.R.attr.colorOnSurfaceVariant
         )
         binding.heroCard.setCardBackgroundColor(heroBg)
         binding.statusSubtitleTop.setTextColor(heroSubFg)
+        binding.heroStatusIcon.imageTintList = ColorStateList.valueOf(heroSubFg)
         binding.statusDisplay.setTextColor(heroFg)
-        binding.heroModeSubtitle.setTextColor(if (active) primaryColor else heroSubFg)
-        binding.heroOrbit.imageTintList = ColorStateList.valueOf(primaryColor)
-
-        // Expressive shape morph: circle (32dp radius on 64dp button) when idle <-> squircle (22dp) when connected
-        val targetRadius = dp2px(if (active) 22 else 32).toFloat()
-        if (binding.heroButton.radius != targetRadius) {
-            ValueAnimator.ofFloat(binding.heroButton.radius, targetRadius).apply {
-                duration = 360
-                interpolator = OvershootInterpolator(1.4f)
-                addUpdateListener {
-                    if (_binding != null) {
-                        binding.heroButton.radius = it.animatedValue as Float
-                    }
-                }
-                start()
-            }
-        }
-
-        val btnBg = MaterialColors.getColor(
-            ctx,
-            if (active) com.google.android.material.R.attr.colorPrimaryContainer
-            else com.google.android.material.R.attr.colorSurfaceContainerHighest,
-            0,
+        binding.heroModeSubtitle.setTextColor(heroFg)
+        androidx.core.widget.TextViewCompat.setCompoundDrawableTintList(
+            binding.heroModeSubtitle, ColorStateList.valueOf(heroFg)
         )
-        val btnFg = MaterialColors.getColor(
-            ctx,
-            if (active) com.google.android.material.R.attr.colorOnPrimaryContainer
-            else androidx.appcompat.R.attr.colorPrimary,
-            0,
-        )
-        binding.heroButton.setCardBackgroundColor(btnBg)
-        binding.heroIcon.imageTintList = ColorStateList.valueOf(btnFg)
+        binding.heroModeDesc.setTextColor(heroSubFg)
+        binding.heroButtonLabel.setTextColor(heroSubFg)
+        binding.heroButtonLabel.text = getString(if (active) R.string.home_tap_stop else R.string.home_tap_start)
 
-        updateOrbitAnimation(connected, connecting)
+        // Large FAB: primary / onPrimary; stop icon while running, power icon while idle
+        binding.heroButton.backgroundTintList =
+            ColorStateList.valueOf(attrColor(androidx.appcompat.R.attr.colorPrimary))
+        binding.heroButton.imageTintList =
+            ColorStateList.valueOf(attrColor(com.google.android.material.R.attr.colorOnPrimary))
+        binding.heroButton.setImageResource(if (active) R.drawable.ic_home_stop else R.drawable.ic_expressive_power)
+        binding.heroButton.alpha = if (connecting) 0.7f else 1f
+
         updateModeAndCards(connected)
 
         if (connected) {
@@ -267,33 +254,6 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             binding.exitCardTitle.text = getString(R.string.home_exit_ip_label)
             binding.exitCountryText.text = getString(R.string.home_exit_not_connected)
             binding.exitIpText.text = getString(R.string.home_exit_tap_to_check)
-        }
-    }
-
-    private fun updateOrbitAnimation(connected: Boolean, connecting: Boolean) {
-        if (connected || connecting) {
-            binding.heroOrbit.animate().alpha(if (connected) 0.90f else 0.65f).setDuration(250).start()
-            val durationMs = if (connecting) 2200L else 6000L
-            if (orbitAnimator == null || orbitAnimator?.duration != durationMs) {
-                orbitAnimator?.cancel()
-                orbitAnimator = ObjectAnimator.ofFloat(
-                    binding.heroOrbit,
-                    View.ROTATION,
-                    binding.heroOrbit.rotation,
-                    binding.heroOrbit.rotation + 360f,
-                ).apply {
-                    duration = durationMs
-                    repeatCount = ObjectAnimator.INFINITE
-                    interpolator = LinearInterpolator()
-                    start()
-                }
-            } else if (orbitAnimator?.isRunning != true) {
-                orbitAnimator?.start()
-            }
-        } else {
-            orbitAnimator?.cancel()
-            orbitAnimator = null
-            binding.heroOrbit.animate().alpha(0.25f).setDuration(250).start()
         }
     }
 
@@ -308,8 +268,17 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             ProtectionMode.STRICT -> getString(R.string.protection_mode_strict)
             else -> getString(R.string.protection_mode_manual)
         }
-        binding.modeLabel.text = modeText
+        binding.modePill.text = modeText
         binding.heroModeSubtitle.text = modeText
+        binding.heroModeDesc.text = getString(
+            when (mode) {
+                ProtectionMode.SMART_SPLIT -> R.string.protection_mode_desc_smart_split
+                ProtectionMode.STANDARD -> R.string.protection_mode_desc_standard
+                ProtectionMode.BALANCED -> R.string.protection_mode_desc_balanced
+                ProtectionMode.STRICT -> R.string.protection_mode_desc_strict
+                else -> R.string.protection_mode_desc_manual
+            }
+        ).replace(" · ", "\n")
 
         val isSmartSplit = mode == ProtectionMode.SMART_SPLIT
         val showScanCard = isSmartSplit || mode == ProtectionMode.MANUAL
@@ -344,7 +313,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             val blockedCount = blockedDomains.size
             val totalKnown = goodCount + blockedCount
 
-            binding.learningCountText.text = getString(R.string.home_learning_counts, goodCount, blockedCount)
+            binding.learningCountChip.text = getString(R.string.home_learning_counts, goodCount, blockedCount)
 
             if (scanJob?.isActive != true) {
                 binding.btnSmartScan.text = if (DataStore.byedpiStrategyTested) {
@@ -408,27 +377,39 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         }
         binding.learningDomainsScroll.visibility = View.VISIBLE
 
-        val fgPrimary = MaterialColors.getColor(ctx, com.google.android.material.R.attr.colorOnSurface, 0)
-        val fgVariant = MaterialColors.getColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant, 0)
-
         items.forEachIndexed { idx, (label, kind) ->
-            val tv = TextView(ctx).apply {
-                text = label
-                textSize = 10.5f
-                gravity = Gravity.CENTER
-                setPadding(dp2px(10), dp2px(4), dp2px(10), dp2px(4))
-                setBackgroundResource(R.drawable.bg_pill_secondary)
-                setTextColor(if (kind == 0) fgPrimary else fgVariant)
-                alpha = if (kind == 2) 0.78f else 0.95f
+            val chip = Chip(ctx).apply {
+                setChipDrawable(
+                    ChipDrawable.createFromAttributes(
+                        ctx, null, 0, com.google.android.material.R.style.Widget_Material3_Chip_Assist
+                    )
+                )
+                isCheckable = false
+                setTextAppearanceResource(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge)
+                text = label.removePrefix("✓ ").removePrefix("✕ ")
+                chipIcon = when (kind) {
+                    0 -> ContextCompat.getDrawable(ctx, R.drawable.ic_home_check)
+                    2 -> ContextCompat.getDrawable(ctx, R.drawable.ic_home_block)
+                    else -> null
+                }
+                isChipIconVisible = chipIcon != null
+                chipIconTint = ColorStateList.valueOf(
+                    MaterialColors.getColor(
+                        ctx,
+                        if (kind == 2) com.google.android.material.R.attr.colorOnSurfaceVariant
+                        else androidx.appcompat.R.attr.colorPrimary,
+                        0,
+                    )
+                )
                 setOnClickListener { showCdnLearningDialog() }
             }
             val lp = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply {
-                if (idx > 0) marginStart = dp2px(6)
+                if (idx > 0) marginStart = dp2px(8)
             }
-            row.addView(tv, lp)
+            row.addView(chip, lp)
         }
     }
 
@@ -445,14 +426,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
 
         if (!connected) {
             binding.dualEngineSub.text = "未连接 · 启动后自动分配 Wi-Fi 与蜂窝流量"
-            binding.dualEngineFlowView.updateState(
-                flowing = false,
-                wifiShare = 0.5f,
-                cellShare = 0.5f,
-                wifiDetail = "待命",
-                cellDetail = "待命",
-                coreLabel = badgeText,
-            )
+            showDualEngineShares(flowing = false, wifiShare = 0f, cellShare = 0f, wifiDetail = "待命", cellDetail = "待命")
             return
         }
 
@@ -462,19 +436,36 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
                 onMainDispatcher {
                     if (_binding != null) {
                         binding.dualEngineSub.text = parsed.summaryLine
-                        binding.dualEngineFlowView.updateState(
+                        showDualEngineShares(
                             flowing = true,
                             wifiShare = parsed.wifiShare,
                             cellShare = parsed.cellShare,
                             wifiDetail = parsed.wifiDetail,
                             cellDetail = parsed.cellDetail,
-                            coreLabel = parsed.coreLabel,
                         )
                     }
                 }
                 delay(2000L)
             }
         }
+    }
+
+    /** M3 linear progress per network (Wi-Fi = primary, cellular = tertiary). */
+    private fun showDualEngineShares(
+        flowing: Boolean,
+        wifiShare: Float,
+        cellShare: Float,
+        wifiDetail: String,
+        cellDetail: String,
+    ) {
+        val wifiPct = (wifiShare.coerceIn(0f, 1f) * 100).toInt()
+        val cellPct = (cellShare.coerceIn(0f, 1f) * 100).toInt()
+        binding.wifiShareProgress.setProgressCompat(if (flowing) wifiPct else 0, true)
+        binding.cellShareProgress.setProgressCompat(if (flowing) cellPct else 0, true)
+        binding.wifiShareValue.text = if (flowing) "$wifiPct%" else "—"
+        binding.cellShareValue.text = if (flowing) "$cellPct%" else "—"
+        binding.wifiShareDetail.text = wifiDetail
+        binding.cellShareDetail.text = cellDetail
     }
 
     private data class DualEngineUiState(
@@ -882,8 +873,6 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
     }
 
     override fun onDestroyView() {
-        orbitAnimator?.cancel()
-        orbitAnimator = null
         exitIpJob?.cancel()
         dualEngineTickerJob?.cancel()
         super.onDestroyView()
