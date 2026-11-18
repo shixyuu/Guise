@@ -131,7 +131,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
 
         val bgColor = MaterialColors.getColor(
             ctx,
-            if (connected) com.google.android.material.R.attr.colorPrimary
+            if (connected) androidx.appcompat.R.attr.colorPrimary
             else com.google.android.material.R.attr.colorPrimaryContainer,
             0,
         )
@@ -229,7 +229,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         binding.btnSmartScan.isEnabled = false
         scanJob = runOnDefaultDispatcher {
             val result = SmartDataSaver.scanAndSave { progress ->
-                onMainDispatcher {
+                runOnMainDispatcher {
                     if (_binding != null) {
                         binding.btnSmartScan.text = getString(
                             R.string.home_smart_scanning,
@@ -273,7 +273,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
 
     private fun fetchExitIp(): String? {
         val proxy = if (DataStore.serviceMode != "vpn") {
-            Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", DataStore.mixedPort))
+            Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", DataStore.httpPort))
         } else null
         return runCatching {
             val url = URL("https://api.ip.sb/geoip")

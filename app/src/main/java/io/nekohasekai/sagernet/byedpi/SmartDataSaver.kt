@@ -300,8 +300,8 @@ object SmartDataSaver {
         if (!bin.exists()) return null
         val port = java.net.ServerSocket(0).use { it.localPort }
         val cmd = mutableListOf(bin.absolutePath, "-i", "127.0.0.1", "-p", port.toString())
-        val rawArgs = DataStore.byedpiArgs.trim().ifEmpty { ByeDPI.DEFAULT_ARGS }
-        cmd.addAll(ByeDPI.tokenizeArgs(rawArgs))
+        val rawArgs = ByeDPI.effectiveArgs(DataStore.byedpiArgs)
+        cmd.addAll(ByeDPI.sanitizeArgs(rawArgs.split(Regex("\\s+")).filter { it.isNotEmpty() }))
         val process = ProcessBuilder(cmd).redirectErrorStream(true).start()
         Thread.sleep(150)
         return process to port

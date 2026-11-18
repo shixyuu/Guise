@@ -95,7 +95,7 @@ class ExpressiveAddNodeSheet : BottomSheetDialogFragment() {
                     serverPort = 1080
                 })
                 onMainDispatcher {
-                    (parentFragment as? ConfigurationFragment)?.snackbar(R.string.byedpi_profile_created)?.show()
+                    (activity as? MainActivity)?.snackbar(R.string.byedpi_profile_created)?.show()
                 }
             }
         }

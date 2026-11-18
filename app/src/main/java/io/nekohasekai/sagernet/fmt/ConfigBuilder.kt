@@ -32,6 +32,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.LogLevel
+import io.nekohasekai.sagernet.ProtectionMode
 import io.nekohasekai.sagernet.RouteMode
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.TLS_FRAGMENTATION_METHOD
@@ -2169,9 +2170,8 @@ fun buildV2RayConfig(
                         val stream = currentOutbound.streamSettings
                         val tls = stream?.tlsSettings
                         val isStrongCamouflage = stream?.security == "reality" ||
-                            !tls?.utlsFingerprint.isNullOrEmpty() ||
-                            !tls?.echConfig.isNullOrEmpty() ||
-                            !tls?.echDohServer.isNullOrEmpty() ||
+                            !tls?.fingerprint.isNullOrEmpty() ||
+                            tls?.ech != null ||
                             currentOutbound.protocol in setOf("naive", "anytls", "shadowtls")
                         val isUdpQuic = currentOutbound.protocol in setOf(
                             "hysteria2", "tuic", "juicity", "shadowquic", "masque", "wireguard"
