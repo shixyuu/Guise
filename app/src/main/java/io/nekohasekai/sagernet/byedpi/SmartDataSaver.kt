@@ -26,7 +26,7 @@ import android.util.Log
 import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.TunImplementation
-import io.nekohasekai.sagernet.bg.DefaultNetworkListener
+import io.nekohasekai.sagernet.utils.DefaultNetworkListener
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.Logs
 import kotlinx.coroutines.CancellationException
