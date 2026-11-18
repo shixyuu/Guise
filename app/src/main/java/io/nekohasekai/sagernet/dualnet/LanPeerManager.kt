@@ -405,8 +405,9 @@ class LanPeerManager(
             val usedMb = usedBytes.get() / (1024L * 1024L)
             val limitMb = DataStore.lanPeerShareLimitMb
             val peerList = peers.keys.sorted().joinToString(",")
+            val peerHosts = peers.values.sortedBy { it.label }.joinToString(",") { "${it.label}@${it.host}" }
             statusFile.writeText(
-                "peers=${peers.size}|sharing=${if (shareEnabled) 1 else 0}|usedMb=$usedMb|limitMb=$limitMb|peerNames=$peerList"
+                "peers=${peers.size}|sharing=${if (shareEnabled) 1 else 0}|usedMb=$usedMb|limitMb=$limitMb|peerNames=$peerList|peerHosts=$peerHosts"
             )
         }
     }

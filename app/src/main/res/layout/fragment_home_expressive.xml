@@ -373,10 +373,16 @@
                             tools:text="智能权重" />
                     </LinearLayout>
 
+                    <io.nekohasekai.sagernet.widget.DualMergeFlowView
+                        android:id="@+id/dual_merge_flow"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="10dp" />
+
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="8dp"
                         android:baselineAligned="false"
                         android:orientation="horizontal">
 
@@ -510,6 +516,14 @@
                                 tools:text="71ms · 4连接" />
                         </LinearLayout>
                     </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/lan_peers_container"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:orientation="vertical"
+                        android:visibility="gone" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

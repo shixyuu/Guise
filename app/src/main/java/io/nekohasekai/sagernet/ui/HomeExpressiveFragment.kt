@@ -424,7 +424,14 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
 
         if (!connected) {
             binding.dualEngineSub.text = "未连接 · 启动后自动分配 Wi-Fi 与蜂窝流量"
-            showDualEngineShares(flowing = false, wifiShare = 0f, cellShare = 0f, wifiDetail = "待命", cellDetail = "待命")
+            showDualEngineShares(
+                flowing = false,
+                wifiShare = 0f,
+                cellShare = 0f,
+                wifiDetail = "待命",
+                cellDetail = "待命",
+                peers = emptyList(),
+            )
             return
         }
 
@@ -442,6 +449,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
                             cellShare = parsed.cellShare,
                             wifiDetail = parsed.wifiDetail,
                             cellDetail = parsed.cellDetail,
+                            peers = parsed.peers,
                         )
                     }
                 }
@@ -450,13 +458,14 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         }
     }
 
-    /** M3 linear progress per network (Wi-Fi = primary, cellular = tertiary). */
+    /** M3 linear progress per network (Wi-Fi = primary, cellular = tertiary, LAN peers = secondary). */
     private fun showDualEngineShares(
         flowing: Boolean,
         wifiShare: Float,
         cellShare: Float,
         wifiDetail: String,
         cellDetail: String,
+        peers: List<LanPeerUiState>,
     ) {
         val wifiPct = (wifiShare.coerceIn(0f, 1f) * 100).toInt()
         val cellPct = (cellShare.coerceIn(0f, 1f) * 100).toInt()
@@ -466,6 +475,102 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         binding.cellShareValue.text = if (flowing) "$cellPct%" else "—"
         binding.wifiShareDetail.text = wifiDetail
         binding.cellShareDetail.text = cellDetail
+
+        val streams = buildList {
+            add(io.nekohasekai.sagernet.widget.DualMergeFlowView.LinkStream("Wi-Fi", wifiShare, 0))
+            add(io.nekohasekai.sagernet.widget.DualMergeFlowView.LinkStream("5G", cellShare, 1))
+            peers.forEach { p ->
+                add(io.nekohasekai.sagernet.widget.DualMergeFlowView.LinkStream(p.displayName, p.share, 2))
+            }
+        }
+        binding.dualMergeFlow.updateLinks(flowing, streams)
+
+        val container = binding.lanPeersContainer
+        if (!flowing || peers.isEmpty()) {
+            container.visibility = View.GONE
+            container.removeAllViews()
+            return
+        }
+        container.visibility = View.VISIBLE
+        container.removeAllViews()
+        val ctx = container.context
+        val colorOnSurface = MaterialColors.getColor(ctx, com.google.android.material.R.attr.colorOnSurface, 0)
+        val colorOnVariant = MaterialColors.getColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant, 0)
+        val colorSecondary = MaterialColors.getColor(ctx, com.google.android.material.R.attr.colorSecondary, 0)
+        val colorSecondaryContainer = MaterialColors.getColor(ctx, com.google.android.material.R.attr.colorSecondaryContainer, 0)
+
+        peers.forEachIndexed { idx, peer ->
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                val lp = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    if (idx > 0) topMargin = dp2px(10)
+                }
+                layoutParams = lp
+            }
+
+            val header = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            val icon = android.widget.ImageView(ctx).apply {
+                setImageResource(R.drawable.ic_home_device)
+                imageTintList = ColorStateList.valueOf(colorSecondary)
+            }
+            header.addView(icon, LinearLayout.LayoutParams(dp2px(18), dp2px(18)))
+
+            val titleView = android.widget.TextView(ctx).apply {
+                text = if (peer.hostIp.isNotEmpty()) "${peer.displayName} · ${peer.hostIp}" else peer.displayName
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
+                setTextColor(colorOnSurface)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+            header.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp2px(6)
+                marginEnd = dp2px(8)
+            })
+
+            val pct = (peer.share.coerceIn(0f, 1f) * 100).toInt()
+            val valueView = android.widget.TextView(ctx).apply {
+                text = "$pct%"
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
+                setTextColor(colorOnSurface)
+            }
+            header.addView(valueView)
+            row.addView(header)
+
+            val progress = com.google.android.material.progressindicator.LinearProgressIndicator(ctx).apply {
+                max = 100
+                setIndicatorColor(colorSecondary)
+                trackColor = colorSecondaryContainer
+                trackThickness = dp2px(4)
+                trackCornerRadius = dp2px(2)
+                setProgressCompat(pct, false)
+            }
+            row.addView(progress, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topMargin = dp2px(6)
+            })
+
+            val detailView = android.widget.TextView(ctx).apply {
+                text = peer.detail
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+                setTextColor(colorOnVariant)
+            }
+            row.addView(detailView, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topMargin = dp2px(4)
+            })
+
+            container.addView(row)
+        }
     }
 
     private fun parseLanPeerSummary(): String {
@@ -485,11 +590,33 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         }.joinToString(" · ")
     }
 
+    private fun parseLanPeerHosts(): Map<String, String> {
+        val raw = runCatching {
+            io.nekohasekai.sagernet.dualnet.LanPeerManager.statusFile.readText()
+        }.getOrNull() ?: return emptyMap()
+        val hostsPart = raw.split("|").firstOrNull { it.startsWith("peerHosts=") }
+            ?.removePrefix("peerHosts=") ?: return emptyMap()
+        if (hostsPart.isBlank()) return emptyMap()
+        return hostsPart.split(",").mapNotNull { entry ->
+            val at = entry.lastIndexOf('@')
+            if (at > 0) entry.substring(0, at) to entry.substring(at + 1) else null
+        }.toMap()
+    }
+
+    private data class LanPeerUiState(
+        val label: String,
+        val displayName: String,
+        val hostIp: String,
+        val share: Float,
+        val detail: String,
+    )
+
     private data class DualEngineUiState(
         val wifiShare: Float,
         val cellShare: Float,
         val wifiDetail: String,
         val cellDetail: String,
+        val peers: List<LanPeerUiState>,
         val coreLabel: String,
         val summaryLine: String,
     )
@@ -502,6 +629,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
                 cellShare = 0.5f,
                 wifiDetail = "探测中",
                 cellDetail = "探测中",
+                peers = emptyList(),
                 coreLabel = "动态分配",
                 summaryLine = "双网引擎已就绪 · 正在采样实时链路质量",
             )
@@ -512,6 +640,8 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
         var cellPct = 0f
         var wifiDetail = "未就绪"
         var cellDetail = "未就绪"
+        val peerHosts = parseLanPeerHosts()
+        val peers = mutableListOf<LanPeerUiState>()
 
         val parts = statusLine.split("|").map { it.trim() }
         for (part in parts) {
@@ -527,9 +657,25 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
                 val rtt = Regex("""rtt=(\d+ms)""").find(part)?.groupValues?.get(1)
                 val conns = Regex("""conns=(\d+)""").find(part)?.groupValues?.get(1)
                 cellDetail = listOfNotNull(rtt, conns?.let { "${it}连接" }).joinToString(" · ").ifEmpty { "在线" }
+            } else if (part.startsWith("Peer:")) {
+                val label = part.substringBefore(" ")
+                val pct = Regex("""(\d+)%""").find(part)?.groupValues?.get(1)?.toFloatOrNull()?.div(100f) ?: 0f
+                val rtt = Regex("""rtt=(\d+ms)""").find(part)?.groupValues?.get(1)
+                val conns = Regex("""conns=(\d+)""").find(part)?.groupValues?.get(1)
+                val isDown = part.contains("DOWN")
+                val detail = if (isDown) "离线" else listOfNotNull(rtt, conns?.let { "${it}连接" }).joinToString(" · ").ifEmpty { "在线" }
+                peers.add(
+                    LanPeerUiState(
+                        label = label,
+                        displayName = label.removePrefix("Peer:"),
+                        hostIp = peerHosts[label].orEmpty(),
+                        share = pct,
+                        detail = detail,
+                    )
+                )
             }
         }
-        if (wifiPct == 0f && cellPct == 0f) {
+        if (wifiPct == 0f && cellPct == 0f && peers.isEmpty()) {
             if (statusLine.contains("WiFi") && statusLine.contains("LTE")) {
                 wifiPct = 0.5f
                 cellPct = 0.5f
@@ -545,6 +691,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             cellShare = cellPct,
             wifiDetail = wifiDetail,
             cellDetail = cellDetail,
+            peers = peers,
             coreLabel = coreLabel,
             summaryLine = statusLine,
         )
