@@ -189,7 +189,6 @@ class MainActivity : ThemedActivity(),
                 displayFragmentWithId(item.itemId)
             }
             if (savedInstanceState == null) {
-                displayFragmentWithId(R.id.nav_home)
                 binding.bottomNav.selectedItemId = R.id.nav_home
             }
         } else {
