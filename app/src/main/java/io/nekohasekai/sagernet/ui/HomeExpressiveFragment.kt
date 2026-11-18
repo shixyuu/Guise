@@ -64,7 +64,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.homeRoot) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            v.updatePadding(top = bars.top, bottom = bars.bottom)
+            v.updatePadding(top = bars.top)
             insets
         }
 
@@ -82,7 +82,7 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             showProtectionModeDialog()
         }
 
-        binding.exitIpCard.setOnClickListener {
+        binding.exitIpText.setOnClickListener {
             val state = (activity as? MainActivity)?.state ?: BaseService.State.Idle
             if (state == BaseService.State.Connected) {
                 refreshExitIp()
@@ -264,31 +264,58 @@ class HomeExpressiveFragment : Fragment(R.layout.fragment_home_expressive) {
             val result = SmartDataSaver.scanAndSave(domains) { progress ->
                 activity?.runOnUiThread {
                     if (_binding != null) {
-                        binding.btnSmartScan.text = getString(
-                            R.string.home_smart_scanning,
-                            progress.done,
-                            progress.total,
-                        )
+                        val phaseLabel = when (progress.phase) {
+                            SmartDataSaver.Phase.RESOLVING_DNS -> "DNS"
+                            SmartDataSaver.Phase.PROBING_IPS -> "IP"
+                            SmartDataSaver.Phase.VERIFYING_BYEDPI -> "ByeDPI"
+                        }
+                        binding.btnSmartScan.text = "$phaseLabel (${progress.done}/${progress.total})"
                     }
                 }
             }
             onMainDispatcher {
-                if (_binding != null) {
+                if (_binding != null && isAdded) {
                     binding.btnSmartScan.isEnabled = true
                     binding.btnSmartScan.text = getString(R.string.home_smart_scan)
-                    (activity as? MainActivity)?.snackbar(
-                        getString(
-                            R.string.home_smart_scan_done,
-                            result.dpiDomains.size,
-                            result.ipBlockedDomains.size,
-                        )
-                    )?.show()
+                    showScanResultDialog(result)
                     if (SagerNet.started) {
                         SagerNet.reloadService()
                     }
                 }
             }
         }
+    }
+
+    private fun showScanResultDialog(result: SmartDataSaver.ScanResult) {
+        val ctx = context ?: return
+        val sb = StringBuilder()
+        sb.append("• 可走 ByeDPI (${result.dpiDomains.size}):\n")
+        if (result.dpiDomains.isEmpty()) {
+            sb.append("  (无)\n")
+        } else {
+            result.dpiDomains.forEach { host ->
+                val cdn = result.cdnProviders[host]?.let { " [${it.displayName} ${it.asn}]" }.orEmpty()
+                sb.append("  ✓ $host$cdn\n")
+            }
+        }
+        sb.append("\n• 需走代理 / IP 阻断 (${result.ipBlockedDomains.size}):\n")
+        if (result.ipBlockedDomains.isEmpty()) {
+            sb.append("  (无)\n")
+        } else {
+            result.ipBlockedDomains.forEach { host ->
+                val cdn = result.cdnProviders[host]?.let { " [${it.displayName} ${it.asn}]" }.orEmpty()
+                sb.append("  ✕ $host$cdn\n")
+            }
+        }
+        if (result.failedDnsDomains.isNotEmpty()) {
+            sb.append("\n• DNS 解析失败 (${result.failedDnsDomains.size}):\n")
+            result.failedDnsDomains.forEach { sb.append("  ? $it\n") }
+        }
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle(getString(R.string.home_smart_scan_done, result.dpiDomains.size, result.ipBlockedDomains.size))
+            .setMessage(sb.toString().trim())
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     private fun refreshExitIp() {

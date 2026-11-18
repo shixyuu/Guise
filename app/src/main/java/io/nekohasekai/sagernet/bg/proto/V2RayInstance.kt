@@ -29,6 +29,7 @@ import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.bg.AbstractInstance
 import io.nekohasekai.sagernet.bg.GuardedProcessPool
 import io.nekohasekai.sagernet.byedpi.ByeDPI
+import io.nekohasekai.sagernet.byedpi.ByeDPILearningRelay
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.fmt.LOCALHOST
@@ -323,6 +324,8 @@ abstract class V2RayInstance(
         }
 
         if (::processes.isInitialized) processes.close(GlobalScope + Dispatchers.IO)
+        learningRelay?.close()
+        learningRelay = null
         byedpiProcesses?.close(GlobalScope + Dispatchers.IO)
         byedpiProcesses = null
 

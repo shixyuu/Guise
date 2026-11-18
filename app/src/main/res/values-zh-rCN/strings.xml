@@ -592,4 +592,8 @@
     <string name="naiveproxy_tunnel_timeout">隧道超时（秒）</string>
     <string name="naiveproxy_idle_timeout">空闲超时（秒）</string>
     <string name="uri_template">URI 模板</string>
+    <string name="byedpi_learning_mode">CDN 学习模式</string>
+    <string name="byedpi_learning_mode_sum">仅对识别到的 CDN IP（Cloudflare / Fastly）走 ByeDPI 试探；失败立即无感切回代理，重连 VPN 再试，累计失败 5 次自动拉黑</string>
+    <string name="byedpi_learning_manage">CDN 学习列表管理</string>
+    <string name="byedpi_learning_manage_sum">查看或重置已知可行域名与已知不可行域名</string>
 </resources>

@@ -314,6 +314,30 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             onPreferenceChangeListener = reloadListener
         }
         findPreference<SwitchPreference>(Key.BYEDPI_DNS_VIA_BYEDPI)!!.onPreferenceChangeListener = reloadListener
+        findPreference<SwitchPreference>(Key.BYEDPI_LEARNING_MODE)?.onPreferenceChangeListener = reloadListener
+        findPreference<Preference>("byedpiLearningManage")?.setOnPreferenceClickListener {
+            val good = io.nekohasekai.sagernet.byedpi.ByeDPILearningStore.knownGoodDomains()
+            val blocked = io.nekohasekai.sagernet.byedpi.ByeDPILearningStore.blockedDomains()
+            val counts = io.nekohasekai.sagernet.byedpi.ByeDPILearningStore.failCounts()
+            val msg = buildString {
+                append("• 已知可行域名 (${good.size}):\n")
+                if (good.isEmpty()) append("  (空)\n") else good.forEach { append("  ✓ $it\n") }
+                append("\n• 试探失败计数 (${counts.size}):\n")
+                if (counts.isEmpty()) append("  (空)\n") else counts.forEach { (d, c) -> append("  ! $d ($c/5)\n") }
+                append("\n• 已知不可行域名 (${blocked.size}):\n")
+                if (blocked.isEmpty()) append("  (空)\n") else blocked.forEach { append("  ✕ $it\n") }
+            }.trim()
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.byedpi_learning_manage)
+                .setMessage(msg)
+                .setPositiveButton(android.R.string.ok, null)
+                .setNeutralButton("重置失败与拉黑") { _, _ ->
+                    io.nekohasekai.sagernet.byedpi.ByeDPILearningStore.resetBlockedAndFailures()
+                    needReload()
+                }
+                .show()
+            true
+        }
 
         val byedpiAuto = findPreference<SwitchPreference>(Key.BYEDPI_AUTO)!!
         val byedpiAutoInterval = findPreference<EditTextPreference>(Key.BYEDPI_AUTO_INTERVAL)!!

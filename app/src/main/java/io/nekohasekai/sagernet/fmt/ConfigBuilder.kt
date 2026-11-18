@@ -20,6 +20,8 @@
 package io.nekohasekai.sagernet.fmt
 
 import io.nekohasekai.sagernet.byedpi.ByeDPI
+import io.nekohasekai.sagernet.byedpi.ByeDPILearningStore
+import io.nekohasekai.sagernet.byedpi.CdnAsnMatcher
 import io.nekohasekai.sagernet.dualnet.DualNet
 import android.Manifest
 import android.content.pm.PackageManager
@@ -293,6 +295,10 @@ fun buildV2RayConfig(
     val byedpiIsMain = byedpiProfileInUse && proxies.any {
         (it.requireBean() as? SOCKSBean)?.serverAddress == ByeDPI.PROFILE_MARKER_ADDRESS
     }
+    val byedpiLearningActive = byedpiGlobal && !byedpiIsMain && DataStore.byedpiLearningMode &&
+        (DataStore.isSmartSplitMode || (DataStore.protectionMode == ProtectionMode.MANUAL && DataStore.byedpiEnabled))
+    val byedpiLearningRelayPort = if (byedpiLearningActive) mkPort() else 0
+    val byedpiFallbackPort = if (byedpiLearningActive) mkPort() else 0
     val byedpiDnsPlan = ByeDPI.dnsPlan(
         DataStore.byedpiDns, byedpiPort > 0, byedpiIsMain, byedpiGlobal, byedpiEffectiveMode,
         byedpiEffectiveDomains, routeMode == RouteMode.DIRECT, forTest,
@@ -3118,6 +3124,34 @@ fun buildV2RayConfig(
             })
         }
 
+        if (byedpiLearningActive) {
+            if (routing.domainStrategy == "AsIs") {
+                routing.domainStrategy = "IPIfNonMatch"
+            }
+            val blocked = ByeDPILearningStore.blockedDomains()
+            if (blocked.isNotEmpty()) {
+                routing.rules.add(0, RoutingObject.RuleObject().apply {
+                    type = "field"
+                    domains = blocked
+                    outboundTag = TAG_AGENT
+                })
+            }
+            // Route newly encountered Cloudflare / Fastly CDN IPs (after CN/direct/block rules) to ByeDPI Learning Relay
+            routing.rules.add(RoutingObject.RuleObject().apply {
+                type = "field"
+                network = "tcp"
+                port = "80,443"
+                ip = CdnAsnMatcher.ALL_CIDRS
+                outboundTag = ByeDPI.TAG_BYEDPI
+            })
+            // Top-priority anti-loop rule for Learning Relay fallback
+            routing.rules.add(0, RoutingObject.RuleObject().apply {
+                type = "field"
+                inboundTag = listOf("byedpi-fallback-in")
+                outboundTag = TAG_AGENT
+            })
+        }
+
         if (!forTest) {
             routing.rules.add(0, RoutingObject.RuleObject().apply {
                 type = "field"
@@ -3149,6 +3183,8 @@ fun buildV2RayConfig(
             DataStore.enableFakeDns,
             byedpiPort,
             outbounds.any { it.streamSettings?.sockopt?.mark == DualNet.SPLIT_MARK },
+            byedpiLearningRelayPort,
+            byedpiFallbackPort,
         )
     }
 

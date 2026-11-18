@@ -203,6 +203,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var byedpiArgs by configurationStore.stringNotBlack(Key.BYEDPI_ARGS) { ByeDPI.DEFAULT_ARGS }
     var protectionMode by configurationStore.stringToInt(Key.PROTECTION_MODE) { ProtectionMode.MANUAL }
     var smartSplitDomains by configurationStore.string(Key.SMART_SPLIT_DOMAINS)
+    var byedpiLearningMode by configurationStore.boolean(Key.BYEDPI_LEARNING_MODE)
+    var byedpiLearningFailCounts by configurationStore.string(Key.BYEDPI_LEARNING_FAIL_COUNTS)
+    var byedpiLearningBlocked by configurationStore.string(Key.BYEDPI_LEARNING_BLOCKED)
     var uiStyle by configurationStore.stringToInt(Key.UI_STYLE) { 0 }
     var byedpiAuto by configurationStore.boolean(Key.BYEDPI_AUTO)
     var byedpiAutoInterval by configurationStore.stringToInt(Key.BYEDPI_AUTO_INTERVAL) { ByeDPIAuto.DEFAULT_INTERVAL_MINUTES }

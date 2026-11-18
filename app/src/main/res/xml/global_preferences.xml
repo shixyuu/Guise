@@ -183,6 +183,16 @@
                 app:key="byedpiProbe"
                 app:summary="@string/byedpi_probe_sum"
                 app:title="@string/byedpi_probe" />
+            <SwitchPreference
+                app:icon="@drawable/ic_baseline_texture_24"
+                app:key="byedpiLearningMode"
+                app:summary="@string/byedpi_learning_mode_sum"
+                app:title="@string/byedpi_learning_mode" />
+            <Preference
+                app:icon="@drawable/ic_baseline_texture_24"
+                app:key="byedpiLearningManage"
+                app:summary="@string/byedpi_learning_manage_sum"
+                app:title="@string/byedpi_learning_manage" />
         </PreferenceScreen>
 
         <PreferenceScreen

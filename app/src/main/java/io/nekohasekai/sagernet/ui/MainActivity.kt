@@ -184,6 +184,13 @@ class MainActivity : ThemedActivity(),
             binding.fabProgress.visibility = View.GONE
             binding.stats.visibility = View.GONE
             binding.bottomNav.visibility = View.VISIBLE
+            binding.bottomNav.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                val lp = binding.fragmentHolder.layoutParams as? android.view.ViewGroup.MarginLayoutParams
+                if (lp != null && lp.bottomMargin != v.height) {
+                    lp.bottomMargin = v.height
+                    binding.fragmentHolder.layoutParams = lp
+                }
+            }
             binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
             binding.bottomNav.setOnItemSelectedListener { item ->
                 displayFragmentWithId(item.itemId)

@@ -632,4 +632,8 @@
     <string name="naiveproxy_idle_timeout">Idle timeout (s)</string>
     <string name="uri_template">URI Template</string>
     <string name="action_masque" translatable="false">MASQUE</string>
+    <string name="byedpi_learning_mode">CDN Learning Mode</string>
+    <string name="byedpi_learning_mode_sum">Only probe CDN IPs (Cloudflare / Fastly) via ByeDPI; fallback to proxy on first failure, retry on VPN restart, and block after 5 failures</string>
+    <string name="byedpi_learning_manage">CDN Learning Lists</string>
+    <string name="byedpi_learning_manage_sum">View or reset learned CDN domains and blocked domains</string>
 </resources>

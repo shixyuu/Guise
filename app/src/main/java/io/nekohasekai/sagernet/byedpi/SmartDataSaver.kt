@@ -314,7 +314,7 @@ object SmartDataSaver {
             address = address,
             proxy = proxy,
             network = null,
-            method = "HEAD",
+            method = "GET",
             accept = "*/*",
             timeout = HTTPS_TIMEOUT_MS,
             bodyNeeded = false,
@@ -328,7 +328,7 @@ object SmartDataSaver {
         null
     }
 
-    private fun resolveDoh(host: String, servers: List<String>, network: Network?): InetAddress? {
+    private fun resolveDoh(host: String, servers: List<String>, proxy: Proxy?, network: Network?): InetAddress? {
         val query = Base64.encodeToString(
             ByeDPIProbe.buildDnsQuery(host),
             Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
@@ -349,8 +349,8 @@ object SmartDataSaver {
                     port = port,
                     path = url.file.ifEmpty { "/dns-query" },
                     address = address,
-                    proxy = null,
-                    network = network,
+                    proxy = proxy,
+                    network = if (proxy == null) network else null,
                     method = "GET",
                     accept = "application/dns-message",
                     timeout = 4000,
@@ -426,6 +426,14 @@ object SmartDataSaver {
             .directory(SagerNet.deviceStorage.noBackupFilesDir)
             .redirectErrorStream(true)
             .start()
+        kotlin.concurrent.thread(name = "smart-byedpi-$port", isDaemon = true) {
+            try {
+                process.inputStream.bufferedReader().forEachLine {
+                    Log.d("libbyedpi", "[smart:$port] $it")
+                }
+            } catch (_: IOException) {
+            }
+        }
         if (!ByeDPI.waitForListening(port)) {
             process.destroy()
             return null
